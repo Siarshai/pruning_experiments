@@ -3,13 +3,13 @@ from tensorflow.python.layers import base, utils
 from tensorflow.python.layers.convolutional import Conv2D
 from tensorflow.python.ops import nn_ops, init_ops
 
-MASK_COLLECTION = 'masks'
-THRESHOLD_COLLECTION = 'thresholds'
-MASKED_WEIGHT_COLLECTION = 'masked_weights'
-WEIGHT_COLLECTION = 'kernel'
-# The 'weights' part of the name is needed for the quantization library
-# to recognize that the kernel should be quantized.
-MASKED_WEIGHT_NAME = 'weights/masked_weight'
+MASK_NAME = "mask"
+MASKED_OUTPUT_NAME = "masked_output"
+MASKS_COLLECTION = 'masks'
+WEIGHT_NAME = 'kernel'
+WEIGHTS_COLLECTION = 'kernels'
+BIAS_NAME = 'bias'
+BIASES_COLLECTION = 'biases'
 
 
 class MaskedConv2D(Conv2D):
@@ -30,32 +30,31 @@ class MaskedConv2D(Conv2D):
         kernel_shape = self.kernel_size + (input_dim, self.filters)
 
         self.mask = self.add_variable(
-            name='mask',
-            shape=kernel_shape,
+            name=MASK_NAME,
+            shape=(self.filters,),
             initializer=init_ops.ones_initializer(),
             trainable=False,
             dtype=self.dtype)
-        self.kernel = self.add_variable(name='kernel',
+        self.kernel = self.add_variable(name=WEIGHT_NAME,
                                         shape=kernel_shape,
                                         initializer=self.kernel_initializer,
                                         regularizer=self.kernel_regularizer,
                                         constraint=self.kernel_constraint,
                                         trainable=True,
                                         dtype=self.dtype)
-        self.masked_kernel = tf.multiply(self.mask, self.kernel, MASKED_WEIGHT_NAME)
 
-        tf.add_to_collection(MASK_COLLECTION, self.mask)
-        tf.add_to_collection(MASKED_WEIGHT_COLLECTION, self.masked_kernel)
-        tf.add_to_collection(WEIGHT_COLLECTION, self.kernel)
+        tf.add_to_collection(MASKS_COLLECTION, self.mask)
+        tf.add_to_collection(WEIGHTS_COLLECTION, self.kernel)
 
         if self.use_bias:
-            self.bias = self.add_variable(name='bias',
+            self.bias = self.add_variable(name=BIAS_NAME,
                                           shape=(self.filters,),
                                           initializer=self.bias_initializer,
                                           regularizer=self.bias_regularizer,
                                           constraint=self.bias_constraint,
                                           trainable=True,
                                           dtype=self.dtype)
+            tf.add_to_collection(BIASES_COLLECTION, self.bias)
         else:
             self.bias = None
 
@@ -69,7 +68,7 @@ class MaskedConv2D(Conv2D):
 
         outputs = tf.nn.convolution(
             input=inputs,
-            filter=self.masked_kernel,
+            filter=self.kernel,
             dilation_rate=self.dilation_rate,
             strides=self.strides,
             padding=self.padding.upper(),
@@ -80,6 +79,8 @@ class MaskedConv2D(Conv2D):
                 outputs = tf.nn.bias_add(outputs, self.bias, data_format='NCHW')
             else:
                 outputs = tf.nn.bias_add(outputs, self.bias, data_format='NHWC')
+
+        outputs = tf.multiply(self.mask, outputs, MASKED_OUTPUT_NAME)
 
         if self.activation is not None:
             return self.activation(outputs)

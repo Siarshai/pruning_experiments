@@ -55,20 +55,13 @@ print("Loaded data from {}:\n\t{} train examples\n\t{} test examples\n\t{} class
     dataset.dataset_label, dataset.train_images_num, dataset.test_images_num, dataset.classes_num, dataset.image_shape))
 
 
-def create_network_under_surgery(sess):
+def create_network_under_surgery(sess, repacked_weights=None, layers_order=None):
     network_input = tf.placeholder(tf.float32, [None] + list(dataset.image_shape), 'main_input')
     network_target = tf.placeholder(tf.int32, [None, dataset.classes_num], 'main_target')
-    network_logits = create_network(network_input, dataset.classes_num)
-    network = create_training_ops(network_input, network_logits, network_target, FLAGS)
-    train_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
-    saver = tf.train.Saver()
-    return network_input, network_target, network_logits, network, saver, train_writer
-
-
-def create_network_with_repacked_weigths(sess, repacked_weights, layers_order):
-    network_input = tf.placeholder(tf.float32, [None] + list(dataset.image_shape), 'main_input')
-    network_target = tf.placeholder(tf.int32, [None, dataset.classes_num], 'main_target')
-    network_logits = restore_network(network_input, layers_order, repacked_weights, debug=True)
+    if repacked_weights is not None and layers_order is not None:
+        network_logits = restore_network(network_input, layers_order, repacked_weights, debug=True)
+    else:
+        network_logits = create_network(network_input, dataset.classes_num)
     network = create_training_ops(network_input, network_logits, network_target, FLAGS)
     train_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
     saver = tf.train.Saver()
@@ -81,6 +74,7 @@ model_folder = dataset.dataset_label + "_model_bak"
 if FLAGS.task == "train":
     with tf.Session() as sess:
         network_input, network_target, network_logits, network, saver, train_writer = create_network_under_surgery(sess)
+        print("Begin training")
         simple_train(sess, saver, train_writer, network, dataset, FLAGS)
         print("Training is over, moving model to separate folder")
         try:
@@ -122,8 +116,9 @@ elif FLAGS.task in ["eval", "repack", "eval_repack"]:
         with tf.Session() as sess:
             print("Restoring network with stripped weights...")
             network_input, network_target, network_logits, network, saver, train_writer = \
-                create_network_with_repacked_weigths(
-                    sess, repacked_weights, ["conv1", "conv2", "conv3", "dense1", "dense2_logits"])
+                create_network_under_surgery(
+                    sess, repacked_weights,
+                    ["conv1", "conv2", "conv3", "dense1", "dense2_logits"])
 
             loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
                 network.input_plh: dataset.test_images,
