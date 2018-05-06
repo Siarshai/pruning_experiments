@@ -22,7 +22,7 @@ Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
 Flags.DEFINE_integer('epochs', 30, 'The max epoch for the training')
 
-Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
+Flags.DEFINE_string('task', "eval_repack_randomdrop", 'What we gonna do')
 Flags.DEFINE_string('dataset', "mnist", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
@@ -59,7 +59,7 @@ def create_network_under_surgery(sess, repacked_weights=None, layers_order=None)
     network_input = tf.placeholder(tf.float32, [None] + list(dataset.image_shape), 'main_input')
     network_target = tf.placeholder(tf.int32, [None, dataset.classes_num], 'main_target')
     if repacked_weights is not None and layers_order is not None:
-        network_logits = restore_network(network_input, layers_order, repacked_weights, debug=True)
+        network_logits = restore_network(network_input, layers_order, repacked_weights, debug=False)
     else:
         network_logits = create_network(network_input, dataset.classes_num)
     network = create_training_ops(network_input, network_logits, network_target, FLAGS)
@@ -85,8 +85,8 @@ if FLAGS.task == "train":
                 shutil.copy2(filename, os.path.join(model_folder, os.path.split(filename)[-1]))
         except Exception as e:
             print("Could not relocate trained model: {}", str(e))
-elif FLAGS.task in ["eval", "repack", "eval_repack"]:
-    repacked_weights = None
+elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
+    random_drop_order, repacked_weights_list = None, None
     with tf.Session() as sess:
         network_input, network_target, network_logits, network, saver, train_writer = create_network_under_surgery(sess)
 
@@ -99,33 +99,41 @@ elif FLAGS.task in ["eval", "repack", "eval_repack"]:
 
         network = create_training_ops(network_input, network_logits, network_target, FLAGS)
 
-        if FLAGS.task in ["eval", "eval_repack"]:
+        if FLAGS.task in ["eval"]:
             loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
                 network.input_plh: dataset.test_images,
                 network.target_plh: dataset.test_labels
             })
             print("Val loss after loading: {}".format(loss))
             print("Val accuracy after loading: {}".format(accuracy))
+        else:
+            if FLAGS.task == "eval_repack_randomdrop":
+                random_drop_order = [0.0, 0.25, 0.5, 0.75]
+            else:
+                random_drop_order = [0.0]
 
-        if FLAGS.task in ["repack", "eval_repack"]:
             print("Repacking...")
-            repacked_weights = repack_graph(sess.graph, ["conv1", "conv2", "conv3"], debug=True)
+            repacked_weights_list = []
+            for random_drop in random_drop_order:
+                repacked_weights_list.append(repack_graph(sess.graph, ["conv1", "conv2", "conv3"],
+                                                          random_drop=random_drop, debug=False))
 
-    if FLAGS.task in ["repack", "eval_repack"]:
-        assert repacked_weights
-        with tf.Session() as sess:
-            print("Restoring network with stripped weights...")
-            network_input, network_target, network_logits, network, saver, train_writer = \
-                create_network_under_surgery(
-                    sess, repacked_weights,
-                    ["conv1", "conv2", "conv3", "dense1", "dense2_logits"])
+    if FLAGS.task in ["eval_repack", "eval_repack_randomdrop"]:
+        assert repacked_weights_list
+        for repacked_weights in repacked_weights_list:
+            with tf.Session() as sess:
+                print("Restoring network with stripped weights...")
+                network_input, network_target, network_logits, network, saver, train_writer = \
+                    create_network_under_surgery(
+                        sess, repacked_weights,
+                        ["conv1", "conv2", "conv3", "dense1", "dense2_logits"])
 
-            loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
-                network.input_plh: dataset.test_images,
-                network.target_plh: dataset.test_labels
-            })
-            print("Val loss after repacking: {}".format(loss))
-            print("Val accuracy after repacking: {}".format(accuracy))
+                loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
+                    network.input_plh: dataset.test_images,
+                    network.target_plh: dataset.test_labels
+                })
+                print("Val loss after repacking: {}".format(loss))
+                print("Val accuracy after repacking: {}".format(accuracy))
 else:
     raise ValueError("Unknown task: " + FLAGS.task)
 

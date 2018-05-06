@@ -60,7 +60,6 @@ def restore_network(network_input, layers_order, repacked_weights, debug=False):
         strides=2,
         padding="valid",
         name=layers_order[1] + "_maxpool2d")
-    x = tf.layers.dropout(x, 0.4, name=layers_order[1] + "_dropout")
     x = create_conv_from_weights(x, layers_order[2], repacked_weights, debug)
     x = tf.layers.max_pooling2d(
         inputs=x,
@@ -68,7 +67,6 @@ def restore_network(network_input, layers_order, repacked_weights, debug=False):
         strides=2,
         padding="valid",
         name=layers_order[1] + "_maxpool2d")
-    x = tf.layers.dropout(x, 0.4, name=layers_order[1] + "_dropout")
     x = tf.layers.flatten(x)
     x = create_dense_from_weights(x, layers_order[3], repacked_weights, debug)
     x = create_dense_from_weights(x, layers_order[4], repacked_weights, debug)

@@ -1,3 +1,4 @@
+import random
 from collections import OrderedDict
 
 import numpy as np
@@ -133,9 +134,21 @@ def strip_all_empty_weights(trainable_variables, masks, layer_order, debug=False
     return trainable_variables
 
 
-def repack_graph(graph, layer_order, debug=False):
+def repack_graph(graph, layer_order, random_drop=0.0, debug=False):
     evaluated_trainable_variables = eval_weights_from_graph(graph, collection_name="trainable_variables")
     masks = eval_weights_from_graph(graph, collection_name=MASKS_COLLECTION)
+
+    if random_drop:
+        for key in masks.keys():
+            if "conv" not in key:
+                continue
+            elements_num = len(masks[key])
+            elements_to_drop = int(random_drop*elements_num)
+            if elements_to_drop > 0:
+                idxes = list(range(elements_num))
+                random.shuffle(idxes)
+                masks[key][idxes[:elements_to_drop]] = 0.0
+
     initial_parameters_num = compute_number_of_parameters(evaluated_trainable_variables)
 
     if initial_parameters_num == 0:
