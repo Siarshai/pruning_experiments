@@ -4,11 +4,12 @@ import shutil
 
 import tensorflow as tf
 
-from bonesaw.network_restoration import restore_network
+from bonesaw.network_restoration import get_restore_network_function
 from bonesaw.weights_stripping import repack_graph
-from network_under_surgery.network_creation import create_network
+from network_under_surgery.network_creation import get_layers_names_for_dataset, \
+    get_create_network_function
 from network_under_surgery.training_ops import create_training_ops, simple_train
-from network_under_surgery.data_reading import load_cifar_10_to_memory, load_mnist_to_memory
+from network_under_surgery.data_reading import load_dataset_to_memory
 
 Flags = tf.app.flags
 Flags.DEFINE_string('output_dir', None, 'The output directory of the checkpoint')
@@ -22,8 +23,8 @@ Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
 Flags.DEFINE_integer('epochs', 20, 'The max epoch for the training')
 
-Flags.DEFINE_string('task', "train", 'What we gonna do')
-Flags.DEFINE_string('dataset', "mnist", 'What to feed to network')
+Flags.DEFINE_string('task', "eval_repack_randomdrop", 'What we gonna do')
+Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
 
@@ -33,13 +34,7 @@ if FLAGS.output_dir is None:
     if not os.path.exists(FLAGS.output_dir):
         os.mkdir(FLAGS.output_dir)
 
-# Reading data
-if FLAGS.dataset == "mnist":
-    dataset = load_mnist_to_memory(True)
-elif FLAGS.dataset == "cifar_10":
-    dataset = load_cifar_10_to_memory(True)
-else:
-    raise ValueError("Unknown dataset: " + FLAGS.dataset)
+dataset = load_dataset_to_memory(FLAGS.dataset)
 
 if FLAGS.log_dir is None:
     if not os.path.exists(os.path.join(FLAGS.output_dir, "log")):
@@ -58,9 +53,11 @@ def create_network_under_surgery(sess, repacked_weights=None, layers_order=None)
     network_input = tf.placeholder(tf.float32, [None] + list(dataset.image_shape), 'main_input')
     network_target = tf.placeholder(tf.int32, [None, dataset.classes_num], 'main_target')
     if repacked_weights is not None and layers_order is not None:
-        network_logits = restore_network(network_input, layers_order, repacked_weights, debug=False)
+        restore_network_fn = get_restore_network_function(dataset.dataset_label)
+        network_logits = restore_network_fn(network_input, layers_order, repacked_weights, debug=False)
     else:
-        network_logits = create_network(network_input, dataset.classes_num)
+        create_network_fn = get_create_network_function(dataset.dataset_label)
+        network_logits = create_network_fn(network_input, dataset.classes_num)
     network = create_training_ops(network_input, network_logits, network_target, FLAGS)
     train_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
     saver = tf.train.Saver()
@@ -98,7 +95,8 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
 
         network_input = sess.graph.get_tensor_by_name("main_input:0")
         network_target = sess.graph.get_tensor_by_name("main_target:0")
-        network_logits = sess.graph.get_tensor_by_name("dense2_logits/BiasAdd:0")
+        network_logits = sess.graph.get_tensor_by_name(
+            get_layers_names_for_dataset(dataset.dataset_label)[-1] + "/BiasAdd:0")
 
         network = create_training_ops(network_input, network_logits, network_target, FLAGS)
 
@@ -111,7 +109,7 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
             print("Val accuracy after loading: {}".format(accuracy))
         else:
             if FLAGS.task == "eval_repack_randomdrop":
-                random_drop_order = [0.0, 0.075, 0.1, 0.15, 0.2, 0.3]
+                random_drop_order = [0.0, 0.1, 0.2, 0.3]
             else:
                 random_drop_order = [0.0]
 
@@ -119,7 +117,7 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
             for random_drop in random_drop_order:
                 print("Repacking with {} random drop".format(random_drop))
                 repacked_weights_list.append(
-                    repack_graph(sess.graph, ["conv1", "conv2", "conv3", "dense1", "dense2_logits"],
+                    repack_graph(sess.graph, get_layers_names_for_dataset(dataset.dataset_label),
                                 random_drop=random_drop, debug=False)
                 )
 
@@ -130,8 +128,7 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
                 print("Restoring network with stripped weights...")
                 network_input, network_target, network_logits, network, saver, train_writer = \
                     create_network_under_surgery(
-                        sess, repacked_weights,
-                        ["conv1", "conv2", "conv3", "dense1", "dense2_logits"])
+                        sess, repacked_weights, get_layers_names_for_dataset(dataset.dataset_label))
 
                 loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
                     network.input_plh: dataset.test_images,

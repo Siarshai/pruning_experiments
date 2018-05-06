@@ -16,7 +16,9 @@ def reshape_and_normalize(image):
     if len(normalized_image.shape) == 2:
         normalized_image = np.reshape(normalized_image, (normalized_image.shape[0], normalized_image.shape[1], 1))
     elif len(normalized_image.shape) == 3:
-        normalized_image = np.reshape(normalized_image, (normalized_image.shape[0], normalized_image.shape[1], normalized_image.shape[1]))
+        pass
+    elif len(normalized_image.shape) == 1:
+        normalized_image = np.reshape(normalized_image, (32, 32, 3)) # TODO: unhardcode
     else:
         raise RuntimeError("Illegal input to reshape_and_normalize: shape: {}", normalized_image.shape)
     normalized_image = 2.0 * (normalized_image / 255.0) - 1.0
@@ -111,3 +113,9 @@ def load_cifar_10_to_memory(ohe=False):
     )
 
     return dataset
+
+def load_dataset_to_memory(dataset_label):
+    return {
+        "mnist": load_mnist_to_memory,
+        "cifar_10": load_cifar_10_to_memory
+    }[dataset_label](True)
