@@ -20,9 +20,9 @@ Flags.DEFINE_float('learning_rate', 0.001, 'The learning rate for the network')
 Flags.DEFINE_float('beta1', 0.975, 'beta1 of Adam optimizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 30, 'The max epoch for the training')
+Flags.DEFINE_integer('epochs', 20, 'The max epoch for the training')
 
-Flags.DEFINE_string('task', "eval_repack_randomdrop", 'What we gonna do')
+Flags.DEFINE_string('task', "train", 'What we gonna do')
 Flags.DEFINE_string('dataset', "mnist", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
@@ -33,6 +33,14 @@ if FLAGS.output_dir is None:
     if not os.path.exists(FLAGS.output_dir):
         os.mkdir(FLAGS.output_dir)
 
+# Reading data
+if FLAGS.dataset == "mnist":
+    dataset = load_mnist_to_memory(True)
+elif FLAGS.dataset == "cifar_10":
+    dataset = load_cifar_10_to_memory(True)
+else:
+    raise ValueError("Unknown dataset: " + FLAGS.dataset)
+
 if FLAGS.log_dir is None:
     if not os.path.exists(os.path.join(FLAGS.output_dir, "log")):
         os.mkdir(os.path.join(FLAGS.output_dir, "log"))
@@ -41,15 +49,6 @@ if FLAGS.log_dir is None:
         run_idx += 1
     os.mkdir(os.path.join(FLAGS.output_dir, "log", str(run_idx)))
     FLAGS.log_dir = os.path.join(FLAGS.output_dir, "log", str(run_idx))
-
-
-# Reading data
-if FLAGS.dataset == "mnist":
-    dataset = load_mnist_to_memory(True)
-elif FLAGS.dataset == "cifar_10":
-    dataset = load_cifar_10_to_memory(True)
-else:
-    raise ValueError("Unknown dataset: " + FLAGS.dataset)
 
 print("Loaded data from {}:\n\t{} train examples\n\t{} test examples\n\t{} classes\n\tinput shape: {}\n".format(
     dataset.dataset_label, dataset.train_images_num, dataset.test_images_num, dataset.classes_num, dataset.image_shape))
@@ -72,8 +71,10 @@ def create_network_under_surgery(sess, repacked_weights=None, layers_order=None)
 model_folder = dataset.dataset_label + "_model_bak"
 
 if FLAGS.task == "train":
+
     with tf.Session() as sess:
-        network_input, network_target, network_logits, network, saver, train_writer = create_network_under_surgery(sess)
+        network_input, network_target, network_logits, network, saver, train_writer = \
+            create_network_under_surgery(sess)
         print("Begin training")
         simple_train(sess, saver, train_writer, network, dataset, FLAGS)
         print("Training is over, moving model to separate folder")
@@ -85,10 +86,12 @@ if FLAGS.task == "train":
                 shutil.copy2(filename, os.path.join(model_folder, os.path.split(filename)[-1]))
         except Exception as e:
             print("Could not relocate trained model: {}", str(e))
+
 elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
     random_drop_order, repacked_weights_list = None, None
     with tf.Session() as sess:
-        network_input, network_target, network_logits, network, saver, train_writer = create_network_under_surgery(sess)
+        network_input, network_target, network_logits, network, saver, train_writer = \
+            create_network_under_surgery(sess)
 
         ckpt = tf.train.get_checkpoint_state(model_folder)
         saver.restore(sess, ckpt.model_checkpoint_path)
@@ -108,15 +111,17 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
             print("Val accuracy after loading: {}".format(accuracy))
         else:
             if FLAGS.task == "eval_repack_randomdrop":
-                random_drop_order = [0.0, 0.25, 0.5, 0.75]
+                random_drop_order = [0.0, 0.075, 0.1, 0.15, 0.2, 0.3]
             else:
                 random_drop_order = [0.0]
 
-            print("Repacking...")
             repacked_weights_list = []
             for random_drop in random_drop_order:
-                repacked_weights_list.append(repack_graph(sess.graph, ["conv1", "conv2", "conv3"],
-                                                          random_drop=random_drop, debug=False))
+                print("Repacking with {} random drop".format(random_drop))
+                repacked_weights_list.append(
+                    repack_graph(sess.graph, ["conv1", "conv2", "conv3", "dense1", "dense2_logits"],
+                                random_drop=random_drop, debug=False)
+                )
 
     if FLAGS.task in ["eval_repack", "eval_repack_randomdrop"]:
         assert repacked_weights_list

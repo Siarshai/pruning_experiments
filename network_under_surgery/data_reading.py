@@ -1,12 +1,10 @@
 import struct
 
-import tensorflow as tf
 import collections
 import pickle
 import os
 import numpy as np
 import keras
-import gzip
 
 Dataset = collections.namedtuple("dataset_tensors",
                                  'classes_num, image_shape, train_images_num, test_images_num, '
@@ -113,41 +111,3 @@ def load_cifar_10_to_memory(ohe=False):
     )
 
     return dataset
-
-#
-# def prepare_from_memory_data_reader(FLAGS):
-#     print("Preparing data reader")
-#
-#     images, labels = load_cifar_10_to_memory()
-#
-#     classes_num = len(set(labels))
-#     all_train_images_tensor = tf.ops.convert_to_tensor(images)
-#     all_train_labels_tensor = tf.ops.convert_to_tensor(labels)
-#
-#     train_input_queue = tf.train.slice_input_producer(
-#                             [all_train_images_tensor, all_train_labels_tensor],
-#                             shuffle=True
-#     )
-#
-#     one_train_image_tensor = train_input_queue[0]
-#     one_train_label_tensor = train_input_queue[1]
-#
-#     one_train_image_tensor.set_shape([32, 32, 3])
-#
-#     train_image_batch, train_label_batch = tf.train.shuffle_batch(
-#         [one_train_image_tensor, one_train_label_tensor],
-#         batch_size=FLAGS.batch_size,
-#         capacity=FLAGS.batch_size*16,
-#         min_after_dequeue=FLAGS.batch_size*8
-#         # ,num_threads=1
-#     )
-#
-#     DatasetTensors = collections.namedtuple("dataset_tensors", 'classes_num, train_image_batch, train_label_batch')
-#     data = DatasetTensors(
-#         classes_num=classes_num,
-#         train_image_batch=train_image_batch,
-#         train_label_batch=train_label_batch,
-#         # lr_images_batch_iterator=lr_images_batch_iterator,
-#         # hr_images_batch_iterator=hr_images_batch_iterator
-#     )
-#     return data

@@ -1,5 +1,6 @@
 import random
 from collections import OrderedDict
+from itertools import cycle
 
 import numpy as np
 
@@ -12,15 +13,16 @@ def eval_weights_from_graph(graph, collection_name, debug=False):
         print("get_weights_from_graph: fetched trainable variables")
     evaluated_weights = OrderedDict()
     for var in trainable_variables_list:
-        print(" {}, shape {}".format(var.name, var.shape))
+        if debug:
+            print(" {}, shape {}".format(var.name, var.shape))
         evaluated_weights[var.name.split(":")[0]] = var.eval()
     return evaluated_weights
 
 
-def _get_bias_from_masked_weight_path(evaluated_weights, weight_name):
+def _get_bias_from_weight_path(evaluated_weights, weight_name):
     if not weight_name.endswith(WEIGHT_NAME):
         raise ValueError("Unexpected name: {}", weight_name)
-    origin_name = weight_name[:-len(WEIGHT_NAME)]
+    origin_name = weight_name.split("/")[0]
     bias_name = origin_name + "/" + BIAS_NAME
     for key, val in evaluated_weights.items():
         if key == bias_name:
@@ -35,13 +37,7 @@ def compute_number_of_parameters(evaluated_weights):
     return total
 
 
-def _strip_empty_weights_with_biases(weights, next_weights, bias, mask, debug=False):
-
-    if debug:
-        print("strip_empty_weights_with_biases: got weights tensors")
-        print(" masked_weights ", weights.shape)
-        print(" next_masked_weights ", next_weights.shape)
-        print(" biases ", bias.shape)
+def _strip_empty_weights_conv_with_biases(weights, next_weights, bias, mask):
 
     weights_T = np.transpose(weights, axes=(3, 2, 1, 0))
     next_weights_T = np.transpose(next_weights, axes=(2, 0, 1, 3))
@@ -56,25 +52,14 @@ def _strip_empty_weights_with_biases(weights, next_weights, bias, mask, debug=Fa
             next_repacked_weights_T.append(next_weights_T[j])
             repacked_biases.append(bias[j])
 
-    repacked_biases = np.asarray(repacked_biases)
     repacked_weights = np.transpose(repacked_weights_T, axes=(3, 2, 1, 0))
     next_repacked_weights = np.transpose(next_repacked_weights_T, axes=(1, 2, 0, 3))
-
-    if debug:
-        print("strip_empty_weights_with_biases: after transformation")
-        print(" masked_weights ", repacked_weights.shape)
-        print(" next_masked_weights ", next_repacked_weights.shape)
-        print(" biases ", repacked_biases.shape)
+    repacked_biases = np.asarray(repacked_biases)
 
     return repacked_weights, next_repacked_weights, repacked_biases
 
 
-def strip_empty_weights(masked_weights, next_masked_weights, mask, debug=False):
-
-    if debug:
-        print("strip_empty_weights: got weights tensors")
-        print(" masked_weights ", masked_weights.shape)
-        print(" next_masked_weights ", next_masked_weights.shape)
+def _strip_empty_weights_conv(masked_weights, next_masked_weights, mask):
 
     masked_weights_T = np.transpose(masked_weights, axes=(3, 2, 1, 0))
     next_masked_weights_T = np.transpose(next_masked_weights, axes=(2, 0, 1, 3))
@@ -90,18 +75,95 @@ def strip_empty_weights(masked_weights, next_masked_weights, mask, debug=False):
     repacked_weights = np.transpose(repacked_weights_T, axes=(3, 2, 1, 0))
     next_repacked_weights = np.transpose(next_repacked_weights_T, axes=(1, 2, 0, 3))
 
-    if debug:
-        print("strip_empty_dimensions: after transformation")
-        print(" masked_weights ", repacked_weights.shape)
-        print(" next_masked_weights ", next_repacked_weights.shape)
+    return repacked_weights, next_repacked_weights
+
+
+def _strip_empty_weights_dense_with_biases(masked_weights, next_masked_weights, bias, mask):
+
+    masked_weights_T = np.transpose(masked_weights, axes=(1, 0))
+
+    repacked_weights_T = []
+    next_repacked_weights = []
+    repacked_biases = []
+
+    for j in range(len(mask)):
+        if mask[j] != 0.0:
+            repacked_weights_T.append(masked_weights_T[j])
+            next_repacked_weights.append(next_masked_weights[j])
+            repacked_biases.append(bias[j])
+
+    repacked_weights = np.transpose(repacked_weights_T, axes=(1, 0))
+    next_repacked_weights = np.asarray(next_repacked_weights)
+    repacked_biases = np.asarray(repacked_biases)
+
+    return repacked_weights, next_repacked_weights, repacked_biases
+
+
+def _strip_empty_weights_dense(masked_weights, next_masked_weights, mask):
+
+    masked_weights_T = np.transpose(masked_weights, axes=(1, 0))
+
+    repacked_weights_T = []
+    next_repacked_weights = []
+
+    for j in range(len(mask)):
+        if mask[j] != 0.0:
+            repacked_weights_T.append(masked_weights_T[j])
+            next_repacked_weights.append(next_masked_weights[j])
+
+    repacked_weights = np.transpose(repacked_weights_T, axes=(1, 0))
+    next_repacked_weights = np.asarray(next_repacked_weights)
+
+    return repacked_weights, next_repacked_weights
+
+
+def _strip_empty_weights_conv_to_dense_with_biases(weights, next_weights, bias, mask):
+
+    weights_T = np.transpose(weights, axes=(3, 2, 1, 0))
+
+    repacked_weights_T = []
+    next_repacked_weights = []
+    repacked_biases = []
+
+    for j in range(len(mask)):
+        if mask[j] != 0.0:
+            repacked_weights_T.append(weights_T[j])
+            repacked_biases.append(bias[j])
+
+    for row, m in zip(next_weights, cycle(mask)):
+        if m:
+            next_repacked_weights.append(row)
+
+    repacked_weights = np.transpose(repacked_weights_T, axes=(3, 2, 1, 0))
+    next_repacked_weights = np.asarray(next_repacked_weights)
+    repacked_biases = np.asarray(repacked_biases)
+
+    return repacked_weights, next_repacked_weights, repacked_biases
+
+
+def _strip_empty_weights_conv_to_dense(weights, next_weights, mask):
+
+    weights_T = np.transpose(weights, axes=(3, 2, 1, 0))
+
+    repacked_weights_T = []
+    next_repacked_weights = []
+
+    for j in range(len(mask)):
+        if mask[j] != 0.0:
+            repacked_weights_T.append(weights_T[j])
+
+    for row, m in zip(next_weights, cycle(mask)):
+        if m:
+            next_repacked_weights.append(row)
+
+    repacked_weights = np.transpose(repacked_weights_T, axes=(3, 2, 1, 0))
+    next_repacked_weights = np.asarray(next_repacked_weights)
 
     return repacked_weights, next_repacked_weights
 
 
 def strip_all_empty_weights(trainable_variables, masks, layer_order, debug=False):
-    for i in range(len(layer_order)):
-        if i+1 == len(layer_order):
-            continue
+    for i in range(len(layer_order)-1):
 
         layer_name = layer_order[i]
         next_layer_name = layer_order[i+1]
@@ -115,18 +177,41 @@ def strip_all_empty_weights(trainable_variables, masks, layer_order, debug=False
             print(" ", weight_name)
             print(" ", next_weight_name)
 
-        masked_weights = trainable_variables[weight_name]
-        next_masked_weights = trainable_variables[next_weight_name]
+        weights = trainable_variables[weight_name]
+        next_weights = trainable_variables[next_weight_name]
 
-        bias_name, bias = _get_bias_from_masked_weight_path(trainable_variables, weight_name)
+        bias_name, bias = _get_bias_from_weight_path(trainable_variables, weight_name)
         mask = masks[mask_name]
-        if bias is None:
-            repacked_weights, next_repacked_weights = \
-                strip_empty_weights(masked_weights, next_masked_weights, mask, debug)
+        if len(weights.shape) == 4 and len(next_weights.shape) == 4:
+            # conv -> conv
+            if bias is None:
+                repacked_weights, next_repacked_weights = \
+                    _strip_empty_weights_conv(weights, next_weights, mask)
+            else:
+                repacked_weights, next_repacked_weights, repacked_bias = \
+                    _strip_empty_weights_conv_with_biases(weights, next_weights, bias, mask)
+                trainable_variables[bias_name] = repacked_bias
+        elif len(weights.shape) == 2 and len(next_weights.shape) == 2:
+            # dense -> dense
+            if bias is None:
+                repacked_weights, next_repacked_weights = \
+                    _strip_empty_weights_dense(weights, next_weights, mask)
+            else:
+                repacked_weights, next_repacked_weights, repacked_bias = \
+                    _strip_empty_weights_dense_with_biases(weights, next_weights, bias, mask)
+                trainable_variables[bias_name] = repacked_bias
+        elif len(weights.shape) == 4 and len(next_weights.shape) == 2:
+            # conv -> dense
+            if bias is None:
+                repacked_weights, next_repacked_weights = \
+                    _strip_empty_weights_conv_to_dense(weights, next_weights, mask)
+            else:
+                repacked_weights, next_repacked_weights, repacked_bias = \
+                    _strip_empty_weights_conv_to_dense_with_biases(weights, next_weights, bias, mask)
+                trainable_variables[bias_name] = repacked_bias
         else:
-            repacked_weights, next_repacked_weights, repacked_bias = \
-                _strip_empty_weights_with_biases(masked_weights, next_masked_weights, bias, mask, debug)
-            trainable_variables[bias_name] = repacked_bias
+            raise ValueError("Unsupported weights shapes: {} -> {}".format(
+                weights.shape, next_weights.shape))
 
         trainable_variables[weight_name] = repacked_weights
         trainable_variables[next_weight_name] = next_repacked_weights
@@ -135,13 +220,11 @@ def strip_all_empty_weights(trainable_variables, masks, layer_order, debug=False
 
 
 def repack_graph(graph, layer_order, random_drop=0.0, debug=False):
-    evaluated_trainable_variables = eval_weights_from_graph(graph, collection_name="trainable_variables")
-    masks = eval_weights_from_graph(graph, collection_name=MASKS_COLLECTION)
+    evaluated_trainable_variables = eval_weights_from_graph(graph, collection_name="trainable_variables", debug=debug)
+    masks = eval_weights_from_graph(graph, collection_name=MASKS_COLLECTION, debug=debug)
 
     if random_drop:
         for key in masks.keys():
-            if "conv" not in key:
-                continue
             elements_num = len(masks[key])
             elements_to_drop = int(random_drop*elements_num)
             if elements_to_drop > 0:

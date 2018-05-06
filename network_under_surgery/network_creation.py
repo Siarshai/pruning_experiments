@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.python.layers.convolutional import Conv2D
 from tensorflow.python.layers.core import Dense
 
-from bonesaw.masked_layers import MaskedConv2D
+from bonesaw.masked_layers import MaskedConv2D, MaskedDense
 
 
 def create_network(network_input, classes_num):
@@ -57,9 +57,9 @@ def create_network(network_input, classes_num):
 
     x = tf.layers.flatten(x)
 
-    dense1 = Dense(units=256,
-                   activation=tf.nn.relu,
-                   name="dense1")
+    dense1 = MaskedDense(units=48,
+                         activation=tf.nn.relu,
+                         name="dense1")
     x = dense1.apply(x)
 
     dense2 = Dense(units=classes_num,
