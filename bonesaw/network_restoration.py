@@ -7,17 +7,20 @@ def get_kernel_and_bias(layer_name, repacked_weights, debug=False):
     kernel, bias = None, None
     if "dense" in layer_name:
         kernel = repacked_weights[layer_name + "/kernel"]
-        bias = repacked_weights[layer_name + "/bias"]
+        if layer_name + "/bias" in repacked_weights.keys():
+            bias = repacked_weights[layer_name + "/bias"]
         if debug:
             print("restore_network: dense layer: ", layer_name)
     elif "conv" in layer_name:
         kernel = repacked_weights[layer_name + "/kernel"]
-        if layer_name + "/biases" in repacked_weights.keys():
-            bias = repacked_weights[layer_name + "/biases"]
+        if layer_name + "/bias" in repacked_weights.keys():
+            bias = repacked_weights[layer_name + "/bias"]
         if debug:
             print("restore_network: convolutional layer: ", layer_name)
     else:
-        print("No weights for layer: " + layer_name)
+        raise ValueError("Unexpected layer type: {}, accepting only dense or conv".format(layer_name))
+    if bias is None:
+        print("Bias is none for ", layer_name)
     return kernel, bias
 
 
@@ -32,7 +35,7 @@ def create_conv_from_weights(input_tensor, layer_name, repacked_weights, debug):
         use_bias=bias is not None,
         activation=None,
         kernel_initializer=tf.constant_initializer(kernel),
-        bias_initializer=tf.constant_initializer(bias) if bias else None,
+        bias_initializer=tf.constant_initializer(bias) if bias is not None else None,
         name=layer_name + "_repacked")
     x = conv_layer.apply(input_tensor)
     x = tf.nn.relu(x, name=layer_name + "_relu")
@@ -45,7 +48,7 @@ def create_dense_from_weights(input_tensor, layer_name, repacked_weights, debug)
     dense = Dense(units=units_num,
                   activation=tf.nn.relu,
                   kernel_initializer=tf.constant_initializer(kernel),
-                  bias_initializer=tf.constant_initializer(bias),
+                  bias_initializer=tf.constant_initializer(bias) if bias is not None else None,
                   name=layer_name + "_repacked")
     return dense.apply(input_tensor)
 
@@ -60,6 +63,7 @@ def restore_network_mnist(network_input, layers_order, repacked_weights, debug=F
         strides=2,
         padding="valid",
         name=layers_order[1] + "_maxpool2d")
+    x = tf.layers.dropout(x, 0.4, name=layers_order[1] + "_dropout")
     x = create_conv_from_weights(x, layers_order[2], repacked_weights, debug)
     x = tf.layers.max_pooling2d(
         inputs=x,
@@ -67,6 +71,7 @@ def restore_network_mnist(network_input, layers_order, repacked_weights, debug=F
         strides=2,
         padding="valid",
         name=layers_order[1] + "_maxpool2d")
+    x = tf.layers.dropout(x, 0.4, name=layers_order[2] + "_dropout")
     x = tf.layers.flatten(x)
     x = create_dense_from_weights(x, layers_order[3], repacked_weights, debug)
     x = create_dense_from_weights(x, layers_order[4], repacked_weights, debug)
@@ -82,6 +87,7 @@ def restore_network_cifar_10(network_input, layers_order, repacked_weights, debu
         strides=2,
         padding="valid",
         name=layers_order[1] + "_maxpool2d")
+    x = tf.layers.dropout(x, 0.4, name=layers_order[1] + "_dropout")
     x = create_conv_from_weights(x, layers_order[2], repacked_weights, debug)
     x = create_conv_from_weights(x, layers_order[3], repacked_weights, debug)
     x = tf.layers.max_pooling2d(
@@ -90,6 +96,7 @@ def restore_network_cifar_10(network_input, layers_order, repacked_weights, debu
         strides=2,
         padding="valid",
         name=layers_order[1] + "_maxpool2d")
+    x = tf.layers.dropout(x, 0.4, name=layers_order[3] + "_dropout")
     x = tf.layers.flatten(x)
     x = create_dense_from_weights(x, layers_order[4], repacked_weights, debug)
     x = create_dense_from_weights(x, layers_order[5], repacked_weights, debug)

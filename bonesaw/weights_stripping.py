@@ -246,7 +246,7 @@ def repack_graph(graph, layer_order, random_drop=0.0, debug=False):
         print("initial_parameters_num: ", initial_parameters_num)
         print("repacked_parameters_num: ", repacked_parameters_num)
 
-    print("Finished repacking, compression: ",
-          100*(1.0 - float(repacked_parameters_num)/initial_parameters_num), " percent")
+    compression = 100*(1.0 - float(repacked_parameters_num)/initial_parameters_num)
+    print("Finished repacking, compression: ", compression, " percent")
 
-    return evaluated_trainable_variables
+    return evaluated_trainable_variables, compression
