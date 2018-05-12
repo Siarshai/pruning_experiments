@@ -40,6 +40,9 @@ class MaskedConv2D(Conv2D):
             initializer=init_ops.ones_initializer(),
             trainable=False,
             dtype=self.dtype)
+        self.mask_plh = tf.placeholder(tf.float32, (self.filters,), 'mask_plh')
+        self.mask_assign_op = tf.assign(self.mask, self.mask_plh)
+
         self.kernel = self.add_variable(name=WEIGHT_NAME,
                                         shape=kernel_shape,
                                         initializer=self.kernel_initializer,

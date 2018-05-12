@@ -9,7 +9,7 @@ from bonesaw.network_restoration import get_restore_network_function
 from bonesaw.weights_stripping import repack_graph, eval_weights_from_graph
 from network_under_surgery.network_creation import get_layers_names_for_dataset, \
     get_create_network_function
-from network_under_surgery.training_ops import create_training_ops, simple_train
+from network_under_surgery.training_ops import create_training_ops, simple_train, train_bruteforce
 from network_under_surgery.data_reading import load_dataset_to_memory
 from result_show import show_results_against_compression
 
@@ -23,15 +23,14 @@ Flags.DEFINE_float('learning_rate', 0.001, 'The learning rate for the network')
 Flags.DEFINE_float('beta1', 0.975, 'beta1 of Adam optimizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 20, 'The max epoch for the training')
+Flags.DEFINE_integer('epochs', 150, 'The max epoch for the training')
+Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
+Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
 
-Flags.DEFINE_string('task', "eval_repack_randomdrop", 'What we gonna do')
+Flags.DEFINE_string('task', "train_simple", 'What we gonna do')
 Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
-
-random_drop_order = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35]
-random_drop_tries = 3
 
 # Preparing directory, checking passed arguments
 if FLAGS.output_dir is None:
@@ -61,26 +60,30 @@ def create_network_under_surgery(sess, repacked_weights=None, layers_order=None)
     if repacked_weights is not None and layers_order is not None:
         restore_network_fn = get_restore_network_function(dataset.dataset_label)
         network_logits = restore_network_fn(network_input, layers_order, repacked_weights, debug=False)
+        stripable_layers = None
     else:
         create_network_fn = get_create_network_function(dataset.dataset_label)
-        network_logits = create_network_fn(network_input, dataset.classes_num)
+        network_logits, stripable_layers = create_network_fn(network_input, dataset.classes_num)
     print("Network created ({}), preparing ops".format(datetime.datetime.now() - begin_ts))
     network = create_training_ops(network_input, network_logits, network_target, FLAGS)
     train_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
     saver = tf.train.Saver()
     sess.run(tf.global_variables_initializer())
-    return network_input, network_target, network_logits, network, saver, train_writer
+    return network_input, network_target, network_logits, network, saver, train_writer, stripable_layers
 
 
 model_folder = dataset.dataset_label + "_model_bak"
 
-if FLAGS.task == "train":
+if FLAGS.task in ["train_simple", "train_bruteforce"]:
 
     with tf.Session() as sess:
-        network_input, network_target, network_logits, network, saver, train_writer = \
+        network_input, network_target, network_logits, network, saver, train_writer, stripable_layers = \
             create_network_under_surgery(sess)
         print("Begin training")
-        simple_train(sess, saver, train_writer, network, dataset, FLAGS)
+        if FLAGS.task == "train_simple":
+            simple_train(sess, saver, train_writer, network, dataset, FLAGS)
+        else:
+            train_bruteforce(sess, saver, train_writer, network, dataset, stripable_layers, FLAGS)
         print("Training is over, moving model to separate folder")
         try:
             if not os.path.exists(model_folder):
@@ -94,7 +97,7 @@ if FLAGS.task == "train":
 elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
     repacked_weights_list, compressions = None, []
     with tf.Session() as sess:
-        network_input, network_target, network_logits, network, saver, train_writer = \
+        network_input, network_target, network_logits, network, saver, train_writer, _ = \
             create_network_under_surgery(sess)
 
         ckpt = tf.train.get_checkpoint_state(model_folder)
@@ -117,6 +120,10 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
 
         if FLAGS.task != "eval_repack_randomdrop":
             random_drop_order = [0.0]
+            random_drop_tries = 1
+        else:
+            random_drop_order = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35]
+            random_drop_tries = 3
 
         if FLAGS.task == "eval":
             exit(0)
@@ -137,7 +144,7 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
             print("{}/{}".format(i+1, len(repacked_weights_list)))
             with tf.Session() as sess:
                 print("Restoring network with stripped weights...")
-                network_input, network_target, network_logits, network, saver, train_writer = \
+                network_input, network_target, network_logits, network, saver, train_writer, _ = \
                     create_network_under_surgery(
                         sess, repacked_weights, get_layers_names_for_dataset(dataset.dataset_label))
 

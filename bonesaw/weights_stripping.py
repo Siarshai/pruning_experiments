@@ -225,6 +225,8 @@ def repack_graph(graph, layer_order, random_drop=0.0, debug=False):
 
     if random_drop:
         for key in masks.keys():
+            if "conv" not in key:
+                continue
             elements_num = len(masks[key])
             elements_to_drop = int(random_drop*elements_num)
             if elements_to_drop > 0:
