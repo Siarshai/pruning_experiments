@@ -142,7 +142,7 @@ def create_network_cifar_10(network_input, classes_num):
                          name="dense1")
     x = dense1.apply(x)
 
-    dense2 = Dense(units=classes_num,
+    dense2 = MaskedDense(units=classes_num,
                    name="dense2_logits")
     x = dense2.apply(x)
 

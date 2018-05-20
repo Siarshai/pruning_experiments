@@ -3,6 +3,7 @@ from collections import namedtuple
 from copy import deepcopy
 from math import inf
 from random import shuffle
+from bonesaw.masked_layers import MASKS_COLLECTION, MASKABLE_TRAINABLES
 
 import os
 import tensorflow as tf
@@ -20,6 +21,15 @@ def create_training_ops(network_input, network_logits, network_target, FLAGS):
     accuracy_op = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(input=network_target, axis=1, output_type=tf.int32), classes_op)))
 
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=network_target, logits=network_logits))
+
+    masks_loss = None
+    masks_lasso_lambda = None
+    if FLAGS.task == "train_lasso":
+        masks_lasso_lambda = tf.Variable(FLAGS.masks_lasso_lambda_step, trainable=False, name="masks_lasso_lambda")
+        all_masks = tf.concat(tf.get_collection(MASKS_COLLECTION), axis=0)
+        number_of_channels_loss = masks_lasso_lambda*tf.reduce_mean(tf.abs(all_masks))
+        masks_loss = loss + number_of_channels_loss
+
     direct_summaries['accuracy'] = tf.summary.scalar('accuracy', accuracy_op)
     direct_summaries['loss'] = tf.summary.scalar('loss', loss)
 
@@ -32,15 +42,28 @@ def create_training_ops(network_input, network_logits, network_target, FLAGS):
     mean_summaries['mean_val_accuracy'] = tf.summary.scalar('mean_val_accuracy', mean_accuracy_op)
     mean_summaries['mean_val_loss'] = tf.summary.scalar('mean_val_loss', mean_loss_op)
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=0.975)
-    train_op = optimizer.minimize(
-        loss=loss,
-        global_step=tf.train.get_global_step())
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    with tf.control_dependencies(update_ops):
+        optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=0.975)
+        train_op = optimizer.minimize(
+            loss=loss,
+            global_step=tf.train.get_global_step(),
+            var_list=tf.get_collection(MASKABLE_TRAINABLES))
+        update_masks_op = None
+        if FLAGS.task == "train_lasso":
+            masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
+            update_masks_op = masks_optimizer.minimize(
+                loss=masks_loss,
+                global_step=tf.train.get_global_step(),
+                var_list=tf.get_collection(MASKS_COLLECTION))
+            update_masks_lambda_op = tf.assign(masks_lasso_lambda, masks_lasso_lambda + FLAGS.masks_lasso_lambda_step)
+            update_masks_op = tf.group(update_masks_op, update_masks_lambda_op)
 
     Network = namedtuple("Network", "input_plh, target_plh, train_op, "
                                     "classes_op, probabilities_op, accuracy_op, "
                                     "loss, mask_update_op, global_step, "
-                                    "direct_summaries, mean_summaries, mean_summaries_plh")
+                                    "direct_summaries, mean_summaries, mean_summaries_plh, "
+                                    "update_masks_op")
     return Network(
         input_plh=network_input,
         target_plh=network_target,
@@ -53,7 +76,8 @@ def create_training_ops(network_input, network_logits, network_target, FLAGS):
         global_step=global_step,
         direct_summaries=direct_summaries,
         mean_summaries=mean_summaries,
-        mean_summaries_plh=mean_summaries_plh
+        mean_summaries_plh=mean_summaries_plh,
+        update_masks_op=update_masks_op
     )
 
 
@@ -80,7 +104,7 @@ def write_mean_summary(sess, step, network, train_writer, mean_accuracy, mean_lo
     print("{} accuracy: {}".format(tag, mean_accuracy))
 
 
-def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS):
+def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_name="train_op"):
 
     assert len(dataset.train_labels) == len(dataset.train_images)
 
@@ -91,12 +115,17 @@ def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS):
     summary_step_freq_divisor = 6
     summary_step_freq_batches = max_batches//summary_step_freq_divisor
 
+    if train_op_name == "update_masks_op":
+        train_op = network.update_masks_op
+    else:
+        train_op = network.train_op
+
     while batch_num < max_batches:
         i = batch_num * FLAGS.batch_size
         batch_idxes = all_idxes[i:i + FLAGS.batch_size]
 
         _, loss, accuracy = sess.run(
-            [network.train_op, network.loss, network.accuracy_op], # network.mask_update_op, <<<<
+            [train_op, network.loss, network.accuracy_op],
             feed_dict={
                 network.input_plh: dataset.train_images[batch_idxes],
                 network.target_plh: dataset.train_labels[batch_idxes]
@@ -208,6 +237,38 @@ def train_bruteforce(sess, saver, train_writer, network, dataset, stripable_laye
 
         for _ in range(FLAGS.epochs_finetune):
             print("Fine-tune epoch {}".format(epoch))
+            train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            epoch += 1
+
+    saver.save(sess, os.path.join(FLAGS.output_dir, 'model_' + dataset.dataset_label))
+
+
+def train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, FLAGS):
+    epoch = 0
+    for _ in range(FLAGS.epochs):
+        print("Epoch {}".format(epoch))
+        train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        epoch += 1
+
+    for cycle in range(FLAGS.masks_lasso_cycles):
+        print("Lasso cycle {}".format(cycle))
+
+        masks_var = tf.get_collection(MASKS_COLLECTION)
+        channels_left = 0.0
+        for var in masks_var:
+            mask_val = var.eval()
+            channels_left += np.sum(mask_val)
+        print("Channels left {}".format(channels_left))
+
+        for _ in range(FLAGS.masks_lasso_epochs):
+            print("Epoch {} (lasso mask train)".format(epoch))
+            train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_name="update_masks_op")
+            val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            epoch += 1
+        for _ in range(FLAGS.epochs_finetune):
+            print("Epoch {} (finetune)".format(epoch))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             epoch += 1

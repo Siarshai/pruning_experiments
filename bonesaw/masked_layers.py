@@ -15,6 +15,7 @@ WEIGHT_NAME = 'kernel'
 WEIGHTS_COLLECTION = 'kernels'
 BIAS_NAME = 'bias'
 BIASES_COLLECTION = 'biases'
+MASKABLE_TRAINABLES = 'maskable_trainables'
 
 
 class MaskedConv2D(Conv2D):
@@ -38,7 +39,7 @@ class MaskedConv2D(Conv2D):
             name=MASK_NAME,
             shape=(self.filters,),
             initializer=init_ops.ones_initializer(),
-            trainable=False,
+            trainable=True,
             dtype=self.dtype)
         self.mask_plh = tf.placeholder(tf.float32, (self.filters,), 'mask_plh')
         self.mask_assign_op = tf.assign(self.mask, self.mask_plh)
@@ -53,6 +54,7 @@ class MaskedConv2D(Conv2D):
 
         tf.add_to_collection(MASKS_COLLECTION, self.mask)
         tf.add_to_collection(WEIGHTS_COLLECTION, self.kernel)
+        tf.add_to_collection(MASKABLE_TRAINABLES, self.kernel)
 
         if self.use_bias:
             self.bias = self.add_variable(name=BIAS_NAME,
@@ -63,6 +65,7 @@ class MaskedConv2D(Conv2D):
                                           trainable=True,
                                           dtype=self.dtype)
             tf.add_to_collection(BIASES_COLLECTION, self.bias)
+            tf.add_to_collection(MASKABLE_TRAINABLES, self.kernel)
         else:
             self.bias = None
 
@@ -142,11 +145,12 @@ class MaskedDense(base.Layer):
             name='mask',
             shape=(self.units,),
             initializer=init_ops.ones_initializer(),
-            trainable=False,
+            trainable=True,
             dtype=self.dtype)
 
         ops.add_to_collection(MASKS_COLLECTION, self.mask)
         ops.add_to_collection(WEIGHTS_COLLECTION, self.kernel)
+        ops.add_to_collection(MASKABLE_TRAINABLES, self.kernel)
 
         if self.use_bias:
             self.bias = self.add_variable(
@@ -158,6 +162,8 @@ class MaskedDense(base.Layer):
                 regularizer=self.bias_regularizer,
                 dtype=self.dtype,
                 trainable=True)
+            ops.add_to_collection(BIASES_COLLECTION, self.bias)
+            ops.add_to_collection(MASKABLE_TRAINABLES, self.bias)
         else:
             self.bias = None
         self.built = True

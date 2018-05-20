@@ -3,6 +3,8 @@ import struct
 import collections
 import pickle
 import os
+from random import shuffle
+
 import numpy as np
 import keras
 
@@ -52,6 +54,11 @@ def load_mnist_to_memory(ohe=False):
     assert len(train_images) == len(train_labels)
     assert len(test_images) == len(test_labels)
 
+    train_images = np.asarray(train_images)
+    train_labels = np.asarray(train_labels)
+    test_images = np.asarray(test_images)
+    test_labels = np.asarray(test_labels)
+
     dataset = Dataset(
         classes_num=classes_num,
         image_shape=train_images[0].shape,
@@ -97,8 +104,17 @@ def load_cifar_10_to_memory(ohe=False):
         train_labels = np.asarray(train_labels)
         test_labels = np.asarray(test_labels)
 
+    train_ds = list(zip(train_images, train_labels))
+    shuffle(train_ds)
+    train_images, train_labels = zip(*train_ds)
+
     assert len(train_images) == len(train_labels)
     assert len(test_images) == len(test_labels)
+
+    train_images = np.asarray(train_images)
+    train_labels = np.asarray(train_labels)
+    test_images = np.asarray(test_images)
+    test_labels = np.asarray(test_labels)
 
     dataset = Dataset(
         classes_num=classes_num,
