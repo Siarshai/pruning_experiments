@@ -20,7 +20,7 @@ def create_training_ops(network_input, network_logits, network_target, FLAGS):
     probabilities_op = tf.nn.softmax(network_logits)
     accuracy_op = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(input=network_target, axis=1, output_type=tf.int32), classes_op)))
 
-    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=network_target, logits=network_logits))
+    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=network_target, logits=network_logits))
 
     masks_loss = None
     masks_lasso_lambda = None
@@ -44,7 +44,7 @@ def create_training_ops(network_input, network_logits, network_target, FLAGS):
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
-        optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=0.975)
+        optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
         train_op = optimizer.minimize(
             loss=loss,
             global_step=tf.train.get_global_step(),
