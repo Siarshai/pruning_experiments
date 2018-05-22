@@ -26,7 +26,7 @@ Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
 Flags.DEFINE_integer('epochs', 30, 'The max epoch for the training')
 Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
 Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
-Flags.DEFINE_integer('masks_lasso_lambda_step', 0.1, '---')
+Flags.DEFINE_float('masks_lasso_lambda_step', 0.1, '---')
 Flags.DEFINE_integer('masks_lasso_cycles', 10, '---')
 Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 
