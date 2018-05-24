@@ -108,8 +108,8 @@ def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_nam
 
     assert len(dataset.train_labels) == len(dataset.train_images)
 
-    all_idxes = list(range(dataset.train_images_num))
-    shuffle(all_idxes)
+    all_idxes = np.random.randint(0, dataset.train_images_num-1, dataset.train_images_num)
+
     mean_loss, mean_accuracy, summary_batch_num, batch_num = 0.0, 0.0, 0, 0
     max_batches = dataset.train_images_num // FLAGS.batch_size
     summary_step_freq_divisor = 6
