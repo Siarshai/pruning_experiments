@@ -21,16 +21,20 @@ Flags.DEFINE_string('pruned_model_name', "pruned_network", 'Name for saved prune
 
 Flags.DEFINE_float('learning_rate', 0.001, 'The learning rate for the network')
 Flags.DEFINE_float('beta1', 0.975, 'beta1 of Adam optimizer')
+Flags.DEFINE_float('l2', 0.0005, 'l2 regularizer')
+Flags.DEFINE_float('l1', 0.0001, 'l2 regularizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 30, 'The max epoch for the training')
+Flags.DEFINE_integer('epochs', 50, 'The max epoch for the training')
 Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
 Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
-Flags.DEFINE_float('masks_lasso_lambda_step', 0.1, '---')
-Flags.DEFINE_integer('masks_lasso_cycles', 10, '---')
+Flags.DEFINE_float('masks_lasso_lambda_step', 0.0002, '---')
+Flags.DEFINE_integer('masks_lasso_cycles', 100, '---')
 Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
+Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
+Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
-Flags.DEFINE_string('task', "train_lasso", 'What we gonna do')
+Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
 Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
@@ -165,10 +169,16 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
                 print("Val accuracy after repacking: {}".format(accuracy))
                 losses.append(loss)
                 accuracies.append(accuracy)
-        print(compressions)
-        print(accuracies)
-        print(losses)
-        show_results_against_compression(compressions, accuracies, losses)
+        if FLAGS.task == "eval_repack_randomdrop":
+            print(compressions)
+            print(accuracies)
+            print(losses)
+            show_results_against_compression(compressions, accuracies, losses)
+        else:
+            print("compression: {}".format(compressions))
+            print("accuracy: {}".format(accuracies))
+            print("loss: {}".format(losses))
+
 
 else:
     raise ValueError("Unknown task: " + FLAGS.task)

@@ -133,21 +133,22 @@ def create_network_cifar_10(network_input, classes_num):
         strides=2,
         padding="valid",
         name="conv4_maxpool2d")
-    x = tf.layers.dropout(x, 0.4, name="conv4_dropout")
+    x = tf.layers.dropout(x, 0.5, name="conv4_dropout")
 
     x = tf.layers.flatten(x)
 
-    dense1 = MaskedDense(units=64,
+    dense1 = MaskedDense(units=32,
                          activation=tf.nn.relu,
                          name="dense1")
     x = dense1.apply(x)
+    x = tf.layers.dropout(x, 0.5, name="conv4_dropout")
 
-    dense2 = MaskedDense(units=classes_num,
+    dense2 = Dense(units=classes_num,
                    name="dense2_logits")
     x = dense2.apply(x)
 
     stripable_layers = {
-        "conv1": conv1, "conv2": conv2, "conv3": conv3, "conv4": conv4
+        "conv1": conv1, "conv2": conv2, "conv3": conv3, "conv4": conv4, "dense1": dense1
     }
     return x, stripable_layers
 

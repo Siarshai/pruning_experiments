@@ -48,9 +48,9 @@ def _strip_empty_weights_conv_with_biases(weights, next_weights, bias, mask):
 
     for j in range(len(mask)):
         if mask[j] != 0.0:
-            repacked_weights_T.append(weights_T[j])
+            repacked_weights_T.append(weights_T[j]*mask[j])
             next_repacked_weights_T.append(next_weights_T[j])
-            repacked_biases.append(bias[j])
+            repacked_biases.append(bias[j]*mask[j])
 
     repacked_weights = np.transpose(repacked_weights_T, axes=(3, 2, 1, 0))
     next_repacked_weights = np.transpose(next_repacked_weights_T, axes=(1, 2, 0, 3))
@@ -69,7 +69,7 @@ def _strip_empty_weights_conv(masked_weights, next_masked_weights, mask):
 
     for j in range(len(mask)):
         if mask[j] != 0.0:
-            repacked_weights_T.append(masked_weights_T[j])
+            repacked_weights_T.append(masked_weights_T[j]*mask[j])
             next_repacked_weights_T.append(next_masked_weights_T[j])
 
     repacked_weights = np.transpose(repacked_weights_T, axes=(3, 2, 1, 0))
@@ -88,9 +88,9 @@ def _strip_empty_weights_dense_with_biases(masked_weights, next_masked_weights, 
 
     for j in range(len(mask)):
         if mask[j] != 0.0:
-            repacked_weights_T.append(masked_weights_T[j])
+            repacked_weights_T.append(masked_weights_T[j]*mask[j])
             next_repacked_weights.append(next_masked_weights[j])
-            repacked_biases.append(bias[j])
+            repacked_biases.append(bias[j]*mask[j])
 
     repacked_weights = np.transpose(repacked_weights_T, axes=(1, 0))
     next_repacked_weights = np.asarray(next_repacked_weights)
@@ -108,7 +108,7 @@ def _strip_empty_weights_dense(masked_weights, next_masked_weights, mask):
 
     for j in range(len(mask)):
         if mask[j] != 0.0:
-            repacked_weights_T.append(masked_weights_T[j])
+            repacked_weights_T.append(masked_weights_T[j]*mask[j])
             next_repacked_weights.append(next_masked_weights[j])
 
     repacked_weights = np.transpose(repacked_weights_T, axes=(1, 0))
@@ -127,8 +127,8 @@ def _strip_empty_weights_conv_to_dense_with_biases(weights, next_weights, bias, 
 
     for j in range(len(mask)):
         if mask[j] != 0.0:
-            repacked_weights_T.append(weights_T[j])
-            repacked_biases.append(bias[j])
+            repacked_weights_T.append(weights_T[j]*mask[j])
+            repacked_biases.append(bias[j]*mask[j])
 
     for row, m in zip(next_weights, cycle(mask)):
         if m:
@@ -150,7 +150,7 @@ def _strip_empty_weights_conv_to_dense(weights, next_weights, mask):
 
     for j in range(len(mask)):
         if mask[j] != 0.0:
-            repacked_weights_T.append(weights_T[j])
+            repacked_weights_T.append(weights_T[j]*mask[j])
 
     for row, m in zip(next_weights, cycle(mask)):
         if m:

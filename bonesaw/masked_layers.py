@@ -9,8 +9,10 @@ from tensorflow.python.ops import nn
 
 
 MASK_NAME = "mask"
+CAPTURE_MASK_NAME = "capture_mask"
 MASKED_OUTPUT_NAME = "masked_output"
 MASKS_COLLECTION = 'masks'
+CAPTURE_MASKS_COLLECTION = 'capture_masks'
 WEIGHT_NAME = 'kernel'
 WEIGHTS_COLLECTION = 'kernels'
 BIAS_NAME = 'bias'
@@ -41,8 +43,17 @@ class MaskedConv2D(Conv2D):
             initializer=init_ops.ones_initializer(),
             trainable=True,
             dtype=self.dtype)
+        self.capture_mask = self.add_variable(
+            name=CAPTURE_MASK_NAME,
+            shape=(self.filters,),
+            initializer=init_ops.ones_initializer(),
+            trainable=False,
+            dtype=self.dtype)
         self.mask_plh = tf.placeholder(tf.float32, (self.filters,), 'mask_plh')
+        self.capture_mask_plh = tf.placeholder(tf.float32, (self.filters,), 'capture_mask_plh')
+
         self.mask_assign_op = tf.assign(self.mask, self.mask_plh)
+        self.capture_mask_assign_op = tf.assign(self.capture_mask, self.capture_mask_plh)
 
         self.kernel = self.add_variable(name=WEIGHT_NAME,
                                         shape=kernel_shape,
@@ -53,6 +64,7 @@ class MaskedConv2D(Conv2D):
                                         dtype=self.dtype)
 
         tf.add_to_collection(MASKS_COLLECTION, self.mask)
+        tf.add_to_collection(CAPTURE_MASKS_COLLECTION, self.capture_mask)
         tf.add_to_collection(WEIGHTS_COLLECTION, self.kernel)
         tf.add_to_collection(MASKABLE_TRAINABLES, self.kernel)
 
@@ -91,7 +103,8 @@ class MaskedConv2D(Conv2D):
             else:
                 outputs = tf.nn.bias_add(outputs, self.bias, data_format='NHWC')
 
-        outputs = tf.multiply(self.mask, outputs, MASKED_OUTPUT_NAME)
+        outputs = tf.multiply(self.mask, outputs)
+        outputs = tf.multiply(self.capture_mask, outputs, MASKED_OUTPUT_NAME)
 
         if self.activation is not None:
             return self.activation(outputs)
@@ -142,13 +155,26 @@ class MaskedDense(base.Layer):
             trainable=True)
 
         self.mask = self.add_variable(
-            name='mask',
+            name=MASK_NAME,
             shape=(self.units,),
             initializer=init_ops.ones_initializer(),
             trainable=True,
             dtype=self.dtype)
+        self.capture_mask = self.add_variable(
+            name=CAPTURE_MASK_NAME,
+            shape=(self.units,),
+            initializer=init_ops.ones_initializer(),
+            trainable=False,
+            dtype=self.dtype)
+
+        self.mask_plh = tf.placeholder(tf.float32, (self.units,), 'mask_plh')
+        self.capture_mask_plh = tf.placeholder(tf.float32, (self.units,), 'capture_mask_plh')
+
+        self.mask_assign_op = tf.assign(self.mask, self.mask_plh)
+        self.capture_mask_assign_op = tf.assign(self.capture_mask, self.capture_mask_plh)
 
         ops.add_to_collection(MASKS_COLLECTION, self.mask)
+        ops.add_to_collection(CAPTURE_MASKS_COLLECTION, self.capture_mask)
         ops.add_to_collection(WEIGHTS_COLLECTION, self.kernel)
         ops.add_to_collection(MASKABLE_TRAINABLES, self.kernel)
 
@@ -183,7 +209,8 @@ class MaskedDense(base.Layer):
         if self.use_bias:
             outputs = nn.bias_add(outputs, self.bias)
 
-        outputs = tf.multiply(self.mask, outputs, MASKED_OUTPUT_NAME)
+        outputs = tf.multiply(self.mask, outputs)
+        outputs = tf.multiply(self.capture_mask, outputs, MASKED_OUTPUT_NAME)
 
         if self.activation is not None:
             return self.activation(outputs)  # pylint: disable=not-callable

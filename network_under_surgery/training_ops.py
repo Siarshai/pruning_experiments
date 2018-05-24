@@ -20,7 +20,12 @@ def create_training_ops(network_input, network_logits, network_target, FLAGS):
     probabilities_op = tf.nn.softmax(network_logits)
     accuracy_op = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(input=network_target, axis=1, output_type=tf.int32), classes_op)))
 
-    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=network_target, logits=network_logits))
+    regularizer_loss = 0
+    for weight in tf.get_collection(MASKABLE_TRAINABLES):
+        regularizer_loss += FLAGS.l2*tf.nn.l2_loss(weight)
+        regularizer_loss += FLAGS.l1*tf.reduce_sum(tf.abs(weight))
+
+    loss = regularizer_loss + tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=network_target, logits=network_logits))
 
     masks_loss = None
     masks_lasso_lambda = None
@@ -255,22 +260,41 @@ def train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, F
     for cycle in range(FLAGS.masks_lasso_cycles):
         print("Lasso cycle {}".format(cycle))
 
-        masks_var = tf.get_collection(MASKS_COLLECTION)
-        channels_left = 0.0
-        for var in masks_var:
-            mask_val = var.eval()
-            channels_left += np.sum(mask_val)
-        print("Channels left {}".format(channels_left))
-
         for _ in range(FLAGS.masks_lasso_epochs):
             print("Epoch {} (lasso mask train)".format(epoch))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_name="update_masks_op")
             val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             epoch += 1
-        for _ in range(FLAGS.epochs_finetune):
+
+        # capture
+        for layer_name, layer in stripable_layers.items():
+            mask_val = layer.mask.eval()
+            capture_mask = np.zeros(mask_val.shape)
+            for channel_idx, m in enumerate(mask_val):
+                if m < FLAGS.masks_lasso_capture_range:
+                    capture_mask[channel_idx] = 0.0
+                    mask_val[channel_idx] = 0.0
+                else:
+                    capture_mask[channel_idx] = 1.0
+            sess.run([layer.mask_assign_op], feed_dict={
+                layer.mask_plh: mask_val
+            })
+            sess.run([layer.capture_mask_assign_op], feed_dict={
+                layer.capture_mask_plh: capture_mask
+            })
+
+        masks_var = tf.get_collection(MASKS_COLLECTION)
+        channels_left = 0.0
+        for var in masks_var:
+            mask_val = var.eval()
+            channels_left += np.sum(mask_val)
+
+        for _ in range(FLAGS.masks_lasso_epochs_finetune):
             print("Epoch {} (finetune)".format(epoch))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             epoch += 1
+
+        print("Channels left {}".format(channels_left))
 
     saver.save(sess, os.path.join(FLAGS.output_dir, 'model_' + dataset.dataset_label))
