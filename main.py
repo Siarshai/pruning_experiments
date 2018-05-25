@@ -25,17 +25,17 @@ Flags.DEFINE_float('l2', 0.0005, 'l2 regularizer')
 Flags.DEFINE_float('l1', 0.0001, 'l2 regularizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 50, 'The max epoch for the training')
+Flags.DEFINE_integer('epochs', 75, 'The max epoch for the training')
 Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
 Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
 Flags.DEFINE_float('masks_lasso_lambda_step', 0.0002, '---')
-Flags.DEFINE_integer('masks_lasso_cycles', 100, '---')
+Flags.DEFINE_integer('masks_lasso_cycles', 50, '---')
 Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
 Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
-Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
+Flags.DEFINE_string('dataset', "cifar_100", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
 

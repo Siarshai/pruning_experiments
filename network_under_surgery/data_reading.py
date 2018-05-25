@@ -98,11 +98,11 @@ def load_cifar_10_to_memory(ohe=False):
 def load_cifar_100_to_memory(ohe=False):
     train_images, train_labels = [], []
     path_to_cifar_batch = os.path.join(paths_config["cifar_100_location"], "train")
-    load_data_from_cifar_batch(path_to_cifar_batch, train_images, train_labels)
+    load_data_from_cifar_batch(path_to_cifar_batch, train_images, train_labels, b'coarse_labels')
 
     test_images, test_labels = [], []
     path_to_cifar_batch = os.path.join(paths_config["cifar_100_location"], "test")
-    load_data_from_cifar_batch(path_to_cifar_batch, test_images, test_labels)
+    load_data_from_cifar_batch(path_to_cifar_batch, test_images, test_labels, b'coarse_labels')
 
     classes_num, test_images, test_labels, train_images, train_labels = \
         common_validation_and_convertion(test_images, test_labels, train_images, train_labels, ohe)
@@ -120,10 +120,10 @@ def load_cifar_100_to_memory(ohe=False):
     )
 
 
-def load_data_from_cifar_batch(path_to_cifar_batch, test_images, test_labels):
+def load_data_from_cifar_batch(path_to_cifar_batch, test_images, test_labels, labels_field=b'labels'):
     with open(path_to_cifar_batch, 'rb') as fo:
         filedata = pickle.load(fo, encoding='bytes')
-        for image, label in zip(filedata[b'data'], filedata[b'labels']):
+        for image, label in zip(filedata[b'data'], filedata[labels_field]):
             test_images.append(reshape_and_normalize(image))
             test_labels.append(label)
 

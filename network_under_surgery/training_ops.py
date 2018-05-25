@@ -267,6 +267,7 @@ def train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, F
             epoch += 1
 
         # capture
+        channels_left = 0
         for layer_name, layer in stripable_layers.items():
             mask_val = layer.mask.eval()
             capture_mask = np.zeros(mask_val.shape)
@@ -276,18 +277,13 @@ def train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, F
                     mask_val[channel_idx] = 0.0
                 else:
                     capture_mask[channel_idx] = 1.0
+                    channels_left += 1
             sess.run([layer.mask_assign_op], feed_dict={
                 layer.mask_plh: mask_val
             })
             sess.run([layer.capture_mask_assign_op], feed_dict={
                 layer.capture_mask_plh: capture_mask
             })
-
-        masks_var = tf.get_collection(MASKS_COLLECTION)
-        channels_left = 0.0
-        for var in masks_var:
-            mask_val = var.eval()
-            channels_left += np.sum(mask_val)
 
         for _ in range(FLAGS.masks_lasso_epochs_finetune):
             print("Epoch {} (finetune)".format(epoch))
