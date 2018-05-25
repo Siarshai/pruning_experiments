@@ -77,7 +77,7 @@ class MaskedConv2D(Conv2D):
                                           trainable=True,
                                           dtype=self.dtype)
             tf.add_to_collection(BIASES_COLLECTION, self.bias)
-            tf.add_to_collection(MASKABLE_TRAINABLES, self.kernel)
+            tf.add_to_collection(MASKABLE_TRAINABLES, self.bias)
         else:
             self.bias = None
 
