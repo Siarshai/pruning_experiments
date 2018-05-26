@@ -5,7 +5,7 @@ from tensorflow.python.layers.core import Dense
 from bonesaw.masked_layers import MaskedConv2D, MaskedDense
 
 
-def create_network_mnist(network_input, classes_num):
+def create_network_mnist(network_input, classes_num, is_training):
     conv1 = MaskedConv2D(
         filters=16,
         kernel_size=(3, 3),
@@ -34,7 +34,6 @@ def create_network_mnist(network_input, classes_num):
         strides=2,
         padding="valid",
         name="conv2_maxpool2d")
-    x = tf.layers.dropout(x, 0.4, name="conv2_dropout")
 
     conv3 = MaskedConv2D(
         filters=32,
@@ -53,11 +52,11 @@ def create_network_mnist(network_input, classes_num):
         strides=2,
         padding="valid",
         name="conv4_maxpool2d")
-    x = tf.layers.dropout(x, 0.4, name="conv4_dropout")
 
     x = tf.layers.flatten(x)
+    x = tf.layers.dropout(x, 0.4, name="conv4_dropout", training=is_training)
 
-    dense1 = MaskedDense(units=32,
+    dense1 = MaskedDense(units=48,
                          activation=tf.nn.relu,
                          name="dense1")
     x = dense1.apply(x)
@@ -72,7 +71,7 @@ def create_network_mnist(network_input, classes_num):
     return x, stripable_layers
 
 
-def create_network_cifar_10(network_input, classes_num):
+def create_network_cifar_10(network_input, classes_num, is_training):
     conv1 = MaskedConv2D(
         filters=16,
         kernel_size=(3, 3),
@@ -83,10 +82,9 @@ def create_network_cifar_10(network_input, classes_num):
         name="conv1")
     x = conv1.apply(network_input)
     x = tf.nn.relu(x, name="conv1_relu")
-    x = tf.layers.dropout(x, 0.4, name="conv1_dropout")
 
     conv2 = MaskedConv2D(
-        filters=16,
+        filters=24,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
@@ -102,10 +100,9 @@ def create_network_cifar_10(network_input, classes_num):
         strides=2,
         padding="valid",
         name="conv2_maxpool2d")
-    x = tf.layers.dropout(x, 0.4, name="conv2_dropout")
 
     conv3 = MaskedConv2D(
-        filters=16,
+        filters=32,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
@@ -114,10 +111,9 @@ def create_network_cifar_10(network_input, classes_num):
         name="conv3")
     x = conv3.apply(x)
     x = tf.nn.relu(x, name="conv3_relu")
-    x = tf.layers.dropout(x, 0.4, name="conv3_dropout")
 
     conv4 = MaskedConv2D(
-        filters=16,
+        filters=32,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
@@ -133,15 +129,14 @@ def create_network_cifar_10(network_input, classes_num):
         strides=2,
         padding="valid",
         name="conv4_maxpool2d")
-    x = tf.layers.dropout(x, 0.5, name="conv4_dropout")
 
     x = tf.layers.flatten(x)
+    x = tf.layers.dropout(x, 0.5, name="conv4_dropout", training=is_training)
 
-    dense1 = MaskedDense(units=32,
+    dense1 = MaskedDense(units=48,
                          activation=tf.nn.relu,
                          name="dense1")
     x = dense1.apply(x)
-    x = tf.layers.dropout(x, 0.5, name="conv4_dropout")
 
     dense2 = Dense(units=classes_num,
                    name="dense2_logits")
@@ -153,7 +148,7 @@ def create_network_cifar_10(network_input, classes_num):
     return x, stripable_layers
 
 
-def create_network_cifar_100(network_input, classes_num):
+def create_network_cifar_100(network_input, classes_num, is_training):
     conv1 = MaskedConv2D(
         filters=32,
         kernel_size=(3, 3),
@@ -164,7 +159,6 @@ def create_network_cifar_100(network_input, classes_num):
         name="conv1")
     x = conv1.apply(network_input)
     x = tf.nn.relu(x, name="conv1_relu")
-    x = tf.layers.dropout(x, 0.4, name="conv1_dropout")
 
     conv2 = MaskedConv2D(
         filters=48,
@@ -183,7 +177,6 @@ def create_network_cifar_100(network_input, classes_num):
         strides=2,
         padding="valid",
         name="conv2_maxpool2d")
-    x = tf.layers.dropout(x, 0.4, name="conv2_dropout")
 
     conv3 = MaskedConv2D(
         filters=64,
@@ -195,10 +188,9 @@ def create_network_cifar_100(network_input, classes_num):
         name="conv3")
     x = conv3.apply(x)
     x = tf.nn.relu(x, name="conv3_relu")
-    x = tf.layers.dropout(x, 0.4, name="conv3_dropout")
 
     conv4 = MaskedConv2D(
-        filters=64,
+        filters=96,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
@@ -214,22 +206,25 @@ def create_network_cifar_100(network_input, classes_num):
         strides=2,
         padding="valid",
         name="conv4_maxpool2d")
-    x = tf.layers.dropout(x, 0.5, name="conv4_dropout")
 
     x = tf.layers.flatten(x)
+    x = tf.layers.dropout(x, 0.5, name="conv4_dropout", training=is_training)
 
     dense1 = MaskedDense(units=128,
                          activation=tf.nn.relu,
                          name="dense1")
     x = dense1.apply(x)
-    x = tf.layers.dropout(x, 0.5, name="conv4_dropout")
-
-    dense2 = Dense(units=classes_num,
-                   name="dense2_logits")
+    dense2 = MaskedDense(units=128,
+                         activation=tf.nn.relu,
+                         name="dense1")
     x = dense2.apply(x)
 
+    dense3 = Dense(units=classes_num,
+                   name="dense2_logits")
+    x = dense3.apply(x)
+
     stripable_layers = {
-        "conv1": conv1, "conv2": conv2, "conv3": conv3, "conv4": conv4, "dense1": dense1
+        "conv1": conv1, "conv2": conv2, "conv3": conv3, "conv4": conv4, "dense1": dense1, "dense2": dense2
     }
     return x, stripable_layers
 

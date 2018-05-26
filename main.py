@@ -19,13 +19,13 @@ Flags.DEFINE_string('log_dir', None, 'Summary directory for tensorboard log')
 Flags.DEFINE_string('source_model_name', None, 'Model name to search in output_dir, will train from scratch if None')
 Flags.DEFINE_string('pruned_model_name', "pruned_network", 'Name for saved pruned network')
 
-Flags.DEFINE_float('learning_rate', 0.001, 'The learning rate for the network')
-Flags.DEFINE_float('beta1', 0.975, 'beta1 of Adam optimizer')
-Flags.DEFINE_float('l2', 0.0005, 'l2 regularizer')
-Flags.DEFINE_float('l1', 0.0001, 'l2 regularizer')
+Flags.DEFINE_float('learning_rate', 0.0015, 'The learning rate for the network')
+Flags.DEFINE_float('beta1', 0.9, 'beta1 of Adam optimizer')
+Flags.DEFINE_float('l2', 0.00025, 'l2 regularizer')
+Flags.DEFINE_float('l1', 0.00005, 'l2 regularizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 75, 'The max epoch for the training')
+Flags.DEFINE_integer('epochs', 80, 'The max epoch for the training')
 Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
 Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
 Flags.DEFINE_float('masks_lasso_lambda_step', 0.0002, '---')
@@ -34,7 +34,7 @@ Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
-Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
+Flags.DEFINE_string('task', "train_lasso", 'What we gonna do')
 Flags.DEFINE_string('dataset', "cifar_100", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
@@ -63,6 +63,11 @@ print("Loaded data from {}:\n\t{} train examples\n\t{} test examples\n\t{} class
 def create_network_under_surgery(sess, repacked_weights=None, layers_order=None):
     network_input = tf.placeholder(tf.float32, [None] + list(dataset.image_shape), 'main_input')
     network_target = tf.placeholder(tf.int32, [None, dataset.classes_num], 'main_target')
+
+    is_training = tf.Variable(initial_value=True, trainable=False, name="is_training")
+    is_training_plh = tf.placeholder(tf.bool, [], 'is_training_plh')
+    is_training_assign_op = tf.assign(is_training, is_training_plh)
+
     begin_ts = datetime.datetime.now()
     if repacked_weights is not None and layers_order is not None:
         restore_network_fn = get_restore_network_function(dataset.dataset_label)
@@ -70,13 +75,13 @@ def create_network_under_surgery(sess, repacked_weights=None, layers_order=None)
         stripable_layers = None
     else:
         create_network_fn = get_create_network_function(dataset.dataset_label)
-        network_logits, stripable_layers = create_network_fn(network_input, dataset.classes_num)
+        network_logits, stripable_layers = create_network_fn(network_input, dataset.classes_num, is_training)
     print("Network created ({}), preparing ops".format(datetime.datetime.now() - begin_ts))
     network = create_training_ops(network_input, network_logits, network_target, FLAGS)
     train_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
     saver = tf.train.Saver()
     sess.run(tf.global_variables_initializer())
-    return network_input, network_target, network_logits, network, saver, train_writer, stripable_layers
+    return network_input, network_target, network_logits, network, saver, train_writer, stripable_layers, is_training_assign_op, is_training_plh
 
 
 model_folder = dataset.dataset_label + "_model_bak"
@@ -84,7 +89,7 @@ model_folder = dataset.dataset_label + "_model_bak"
 if FLAGS.task in ["train_simple", "train_bruteforce", "train_lasso"]:
 
     with tf.Session() as sess:
-        network_input, network_target, network_logits, network, saver, train_writer, stripable_layers = \
+        network_input, network_target, network_logits, network, saver, train_writer, stripable_layers, is_training_assign_op, is_training_plh = \
             create_network_under_surgery(sess)
         print("Begin training")
         if FLAGS.task == "train_simple":
@@ -92,7 +97,7 @@ if FLAGS.task in ["train_simple", "train_bruteforce", "train_lasso"]:
         elif FLAGS.task == "train_bruteforce":
             train_bruteforce(sess, saver, train_writer, network, dataset, stripable_layers, FLAGS)
         elif FLAGS.task == "train_lasso":
-            train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, FLAGS)
+            train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, is_training_assign_op, is_training_plh, FLAGS)
         else:
             assert "Invalid task"
 

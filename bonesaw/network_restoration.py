@@ -119,6 +119,7 @@ def restore_network_cifar_100(network_input, layers_order, repacked_weights, deb
     x = tf.layers.flatten(x)
     x = create_dense_from_weights(x, layers_order[4], repacked_weights, debug)
     x = create_dense_from_weights(x, layers_order[5], repacked_weights, debug)
+    x = create_dense_from_weights(x, layers_order[6], repacked_weights, debug)
     return x
 
 

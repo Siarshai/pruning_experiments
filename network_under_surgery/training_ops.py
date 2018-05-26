@@ -11,28 +11,29 @@ import numpy as np
 
 
 def create_training_ops(network_input, network_logits, network_target, FLAGS):
-
     global_step = tf.train.get_or_create_global_step()
     mask_update_op = None
     direct_summaries, mean_summaries, mean_summaries_plh = {}, {}, {}
 
     classes_op = tf.argmax(input=network_logits, axis=1, output_type=tf.int32)
     probabilities_op = tf.nn.softmax(network_logits)
-    accuracy_op = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(input=network_target, axis=1, output_type=tf.int32), classes_op)))
+    accuracy_op = tf.reduce_mean(
+        tf.to_float(tf.equal(tf.argmax(input=network_target, axis=1, output_type=tf.int32), classes_op)))
 
     regularizer_loss = 0
     for weight in tf.get_collection(MASKABLE_TRAINABLES):
-        regularizer_loss += FLAGS.l2*tf.nn.l2_loss(weight)
-        regularizer_loss += FLAGS.l1*tf.reduce_sum(tf.abs(weight))
+        regularizer_loss += FLAGS.l2 * tf.nn.l2_loss(weight)
+        regularizer_loss += FLAGS.l1 * tf.reduce_sum(tf.abs(weight))
 
-    loss = regularizer_loss + tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=network_target, logits=network_logits))
+    loss = regularizer_loss + tf.reduce_mean(
+        tf.nn.softmax_cross_entropy_with_logits_v2(labels=network_target, logits=network_logits))
 
     masks_loss = None
     masks_lasso_lambda = None
     if FLAGS.task == "train_lasso":
         masks_lasso_lambda = tf.Variable(FLAGS.masks_lasso_lambda_step, trainable=False, name="masks_lasso_lambda")
         all_masks = tf.concat(tf.get_collection(MASKS_COLLECTION), axis=0)
-        number_of_channels_loss = masks_lasso_lambda*tf.reduce_mean(tf.abs(all_masks))
+        number_of_channels_loss = masks_lasso_lambda * tf.reduce_mean(tf.abs(all_masks))
         masks_loss = loss + number_of_channels_loss
 
     direct_summaries['accuracy'] = tf.summary.scalar('accuracy', accuracy_op)
@@ -110,15 +111,14 @@ def write_mean_summary(sess, step, network, train_writer, mean_accuracy, mean_lo
 
 
 def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_name="train_op"):
-
     assert len(dataset.train_labels) == len(dataset.train_images)
 
-    all_idxes = np.random.randint(0, dataset.train_images_num-1, dataset.train_images_num)
+    all_idxes = np.random.randint(0, dataset.train_images_num - 1, dataset.train_images_num)
 
     mean_loss, mean_accuracy, summary_batch_num, batch_num = 0.0, 0.0, 0, 0
     max_batches = dataset.train_images_num // FLAGS.batch_size
     summary_step_freq_divisor = 6
-    summary_step_freq_batches = max_batches//summary_step_freq_divisor
+    summary_step_freq_batches = max_batches // summary_step_freq_divisor
 
     if train_op_name == "update_masks_op":
         train_op = network.update_masks_op
@@ -144,13 +144,12 @@ def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_nam
         if summary_batch_num >= summary_step_freq_batches:
             mean_loss /= summary_batch_num
             mean_accuracy /= summary_batch_num
-            step = epoch*summary_step_freq_divisor + batch_num//summary_step_freq_batches
+            step = epoch * summary_step_freq_divisor + batch_num // summary_step_freq_batches
             write_mean_summary(sess, step, network, train_writer, mean_accuracy, mean_loss, tag="train")
             mean_loss, mean_accuracy, summary_batch_num = 0.0, 0.0, 0
 
 
 def val_epoch(sess, train_writer, network, dataset, epoch, FLAGS):
-
     all_idxes = list(range(dataset.test_images_num))
     shuffle(all_idxes)
     mean_loss, mean_accuracy, batch_num = 0.0, 0.0, 0
@@ -177,7 +176,6 @@ def val_epoch(sess, train_writer, network, dataset, epoch, FLAGS):
 
 
 def pretend_train_epoch(sess, network, dataset, batches_to_feed, FLAGS):
-
     assert len(dataset.train_labels) == len(dataset.train_images)
 
     all_idxes = list(range(dataset.train_images_num))
@@ -235,7 +233,7 @@ def train_bruteforce(sess, saver, train_writer, network, dataset, stripable_laye
                     })
 
         print("Applying mask to layer {}, {} channels left in channel, {} channels left to prune".format(
-            best_layer_name, int(np.sum(best_mask)), FLAGS.filters_to_prune-filter_prune_idx))
+            best_layer_name, int(np.sum(best_mask)), FLAGS.filters_to_prune - filter_prune_idx))
         sess.run([stripable_layers[best_layer_name].mask_assign_op], feed_dict={
             stripable_layers[best_layer_name].mask_plh: best_mask
         })
@@ -249,13 +247,17 @@ def train_bruteforce(sess, saver, train_writer, network, dataset, stripable_laye
     saver.save(sess, os.path.join(FLAGS.output_dir, 'model_' + dataset.dataset_label))
 
 
-def train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, FLAGS):
+def train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, is_training_assign_op, is_training_plh, FLAGS):
     epoch = 0
     for _ in range(FLAGS.epochs):
         print("Epoch {}".format(epoch))
         train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        sess.run([is_training_assign_op], feed_dict={is_training_plh: False})
         val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        sess.run([is_training_assign_op], feed_dict={is_training_plh: True})
         epoch += 1
+
+    saver.save(sess, os.path.join(FLAGS.output_dir, 'model_pretrain_' + dataset.dataset_label))
 
     for cycle in range(FLAGS.masks_lasso_cycles):
         print("Lasso cycle {}".format(cycle))
@@ -263,7 +265,9 @@ def train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, F
         for _ in range(FLAGS.masks_lasso_epochs):
             print("Epoch {} (lasso mask train)".format(epoch))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_name="update_masks_op")
+            sess.run([is_training_assign_op], feed_dict={is_training_plh: False})
             val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            sess.run([is_training_assign_op], feed_dict={is_training_plh: True})
             epoch += 1
 
         # capture
@@ -288,7 +292,9 @@ def train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, F
         for _ in range(FLAGS.masks_lasso_epochs_finetune):
             print("Epoch {} (finetune)".format(epoch))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            sess.run([is_training_assign_op], feed_dict={is_training_plh: False})
             val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            sess.run([is_training_assign_op], feed_dict={is_training_plh: True})
             epoch += 1
 
         print("Channels left {}".format(channels_left))
