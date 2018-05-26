@@ -1,16 +1,14 @@
-import datetime
 import glob
 import os
 import shutil
 
 import tensorflow as tf
 
-from bonesaw.network_restoration import get_restore_network_function
 from bonesaw.weights_stripping import repack_graph
-from network_under_surgery.network_creation import get_layers_names_for_dataset, \
-    get_create_network_function
-from network_under_surgery.training_ops import create_training_ops, simple_train, train_bruteforce, train_lasso
+from network_under_surgery.model_creation import get_layers_names_for_dataset
+from network_under_surgery.training import network_pretrain, train_mask_bruteforce, train_mask_lasso
 from network_under_surgery.data_reading import load_dataset_to_memory
+from network_under_surgery.training_ops_creation import create_training_ops, create_network_under_surgery
 from result_show import show_results_against_compression
 
 Flags = tf.app.flags
@@ -25,17 +23,17 @@ Flags.DEFINE_float('l2', 0.00025, 'l2 regularizer')
 Flags.DEFINE_float('l1', 0.00005, 'l2 regularizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 80, 'The max epoch for the training')
+Flags.DEFINE_integer('epochs', 20, 'The max epoch for the training')
 Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
 Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
 Flags.DEFINE_float('masks_lasso_lambda_step', 0.0002, '---')
-Flags.DEFINE_integer('masks_lasso_cycles', 50, '---')
+Flags.DEFINE_integer('masks_lasso_cycles', 20, '---')
 Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
-Flags.DEFINE_string('task', "train_lasso", 'What we gonna do')
-Flags.DEFINE_string('dataset', "cifar_100", 'What to feed to network')
+Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
+Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
 
@@ -60,80 +58,64 @@ print("Loaded data from {}:\n\t{} train examples\n\t{} test examples\n\t{} class
     dataset.dataset_label, dataset.train_images_num, dataset.test_images_num, dataset.classes_num, dataset.image_shape))
 
 
-def create_network_under_surgery(sess, repacked_weights=None, layers_order=None):
-    network_input = tf.placeholder(tf.float32, [None] + list(dataset.image_shape), 'main_input')
-    network_target = tf.placeholder(tf.int32, [None, dataset.classes_num], 'main_target')
-
-    is_training = tf.Variable(initial_value=True, trainable=False, name="is_training")
-    is_training_plh = tf.placeholder(tf.bool, [], 'is_training_plh')
-    is_training_assign_op = tf.assign(is_training, is_training_plh)
-
-    begin_ts = datetime.datetime.now()
-    if repacked_weights is not None and layers_order is not None:
-        restore_network_fn = get_restore_network_function(dataset.dataset_label)
-        network_logits = restore_network_fn(network_input, layers_order, repacked_weights, debug=False)
-        stripable_layers = None
-    else:
-        create_network_fn = get_create_network_function(dataset.dataset_label)
-        network_logits, stripable_layers = create_network_fn(network_input, dataset.classes_num, is_training)
-    print("Network created ({}), preparing ops".format(datetime.datetime.now() - begin_ts))
-    network = create_training_ops(network_input, network_logits, network_target, FLAGS)
-    train_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
-    saver = tf.train.Saver()
-    sess.run(tf.global_variables_initializer())
-    return network_input, network_target, network_logits, network, saver, train_writer, stripable_layers, is_training_assign_op, is_training_plh
+def relocate_trained_model(model_folder, prefix, FLAGS):
+    try:
+        if not os.path.exists(model_folder):
+            os.mkdir(model_folder)
+        shutil.copy2(os.path.join(FLAGS.output_dir, "checkpoint"), os.path.join(model_folder, "checkpoint"))
+        for filename in glob.glob(os.path.join(FLAGS.output_dir, prefix)):
+            shutil.copy2(filename, os.path.join(model_folder, os.path.split(filename)[-1]))
+    except Exception as e:
+        print("Could not relocate trained model: ", str(e))
 
 
-model_folder = dataset.dataset_label + "_model_bak"
-
-if FLAGS.task in ["train_simple", "train_bruteforce", "train_lasso"]:
+if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso", "mask_bruteforce", "mask_lasso"]:
 
     with tf.Session() as sess:
-        network_input, network_target, network_logits, network, saver, train_writer, stripable_layers, is_training_assign_op, is_training_plh = \
-            create_network_under_surgery(sess)
-        print("Begin training")
-        if FLAGS.task == "train_simple":
-            simple_train(sess, saver, train_writer, network, dataset, FLAGS)
-        elif FLAGS.task == "train_bruteforce":
-            train_bruteforce(sess, saver, train_writer, network, dataset, stripable_layers, FLAGS)
-        elif FLAGS.task == "train_lasso":
-            train_lasso(sess, saver, train_writer, network, dataset, stripable_layers, is_training_assign_op, is_training_plh, FLAGS)
-        else:
-            assert "Invalid task"
+        model_folder = dataset.dataset_label + "_model_pretrained_bak"
+        last_epoch = 0
+        network, saver, train_writer, stripable_layers = create_network_under_surgery(sess, dataset, FLAGS)
 
+        if "mask" not in FLAGS.task:
+            print("Begin training")
+            last_epoch = network_pretrain(sess, saver, train_writer, network, dataset, FLAGS)
+            relocate_trained_model(model_folder, "model_pretrained_*", FLAGS)
+        else:
+            print("Loading pretrained weights")
+            ckpt = tf.train.get_checkpoint_state(model_folder)
+            saver.restore(sess, ckpt.model_checkpoint_path)
+
+        if "bruteforce" in FLAGS.task:
+            print("Continue training with brute force")
+            train_mask_bruteforce(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS)
+        elif "lasso" in FLAGS.task:
+            print("Continue training with lasso")
+            train_mask_lasso(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS)
+
+        model_folder = dataset.dataset_label + "_model_masked_bak"
         print("Training is over, moving model to separate folder")
         try:
-            if not os.path.exists(model_folder):
-                os.mkdir(model_folder)
-            shutil.copy2(os.path.join(FLAGS.output_dir, "checkpoint"), os.path.join(model_folder, "checkpoint"))
-            for filename in glob.glob(os.path.join(FLAGS.output_dir, "model_*")):
-                shutil.copy2(filename, os.path.join(model_folder, os.path.split(filename)[-1]))
+            relocate_trained_model(model_folder, "model_*", FLAGS)
         except Exception as e:
             print("Could not relocate trained model: {}", str(e))
 
 elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
+    model_folder = dataset.dataset_label + "_model_masked_bak"
     repacked_weights_list, compressions = None, []
     with tf.Session() as sess:
-        network_input, network_target, network_logits, network, saver, train_writer, _ = \
-            create_network_under_surgery(sess)
-
+        network, saver, train_writer, _ = create_network_under_surgery(sess, dataset, FLAGS)
         ckpt = tf.train.get_checkpoint_state(model_folder)
         saver.restore(sess, ckpt.model_checkpoint_path)
-
-        network_input = sess.graph.get_tensor_by_name("main_input:0")
-        network_target = sess.graph.get_tensor_by_name("main_target:0")
-        network_logits = sess.graph.get_tensor_by_name(
-            get_layers_names_for_dataset(dataset.dataset_label)[-1] + "/BiasAdd:0")
-
-        network = create_training_ops(network_input, network_logits, network_target, FLAGS)
-
+        
         if FLAGS.task in ["eval", "eval_repack"]:
+            sess.run([network.is_training_assign_op], feed_dict={network.is_training_plh: False})
             loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
                 network.input_plh: dataset.test_images,
                 network.target_plh: dataset.test_labels
             })
             print("Val loss after loading: {}".format(loss))
             print("Val accuracy after loading: {}".format(accuracy))
+            sess.run([network.is_training_assign_op], feed_dict={network.is_training_plh: True})
 
         if FLAGS.task != "eval_repack_randomdrop":
             random_drop_order = [0.0]
@@ -161,10 +143,8 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
             print("{}/{}".format(i+1, len(repacked_weights_list)))
             with tf.Session() as sess:
                 print("Restoring network with stripped weights...")
-                network_input, network_target, network_logits, network, saver, train_writer, _ = \
-                    create_network_under_surgery(
-                        sess, repacked_weights, get_layers_names_for_dataset(dataset.dataset_label))
-
+                layers_order = get_layers_names_for_dataset(dataset.dataset_label)
+                network, saver, train_writer, _ = create_network_under_surgery(sess, dataset, FLAGS, repacked_weights, layers_order)
                 print("Running...")
                 loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
                     network.input_plh: dataset.test_images,
