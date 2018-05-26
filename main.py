@@ -32,7 +32,7 @@ Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
-Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
+Flags.DEFINE_string('task', "only_pretrain", 'What we gonna do')
 Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
@@ -85,19 +85,23 @@ if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso", "mask_brut
             ckpt = tf.train.get_checkpoint_state(model_folder)
             saver.restore(sess, ckpt.model_checkpoint_path)
 
+        need_to_save = False
         if "bruteforce" in FLAGS.task:
             print("Continue training with brute force")
             train_mask_bruteforce(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS)
+            need_to_save = True
         elif "lasso" in FLAGS.task:
             print("Continue training with lasso")
             train_mask_lasso(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS)
+            need_to_save = True
 
-        model_folder = dataset.dataset_label + "_model_masked_bak"
-        print("Training is over, moving model to separate folder")
-        try:
-            relocate_trained_model(model_folder, "model_*", FLAGS)
-        except Exception as e:
-            print("Could not relocate trained model: {}", str(e))
+        if need_to_save:
+            model_folder = dataset.dataset_label + "_model_masked_bak"
+            print("Training is over, moving model to separate folder")
+            try:
+                relocate_trained_model(model_folder, "model_*", FLAGS)
+            except Exception as e:
+                print("Could not relocate trained model: {}", str(e))
 
 elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
     model_folder = dataset.dataset_label + "_model_masked_bak"
@@ -106,7 +110,7 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
         network, saver, train_writer, _ = create_network_under_surgery(sess, dataset, FLAGS)
         ckpt = tf.train.get_checkpoint_state(model_folder)
         saver.restore(sess, ckpt.model_checkpoint_path)
-        
+
         if FLAGS.task in ["eval", "eval_repack"]:
             sess.run([network.is_training_assign_op], feed_dict={network.is_training_plh: False})
             loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
