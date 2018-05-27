@@ -159,14 +159,6 @@ def train_mask_bruteforce(sess, saver, train_writer, network, dataset, stripable
 
 def train_mask_lasso(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS):
     epoch = last_epoch
-    for _ in range(FLAGS.epochs):
-        print("Epoch {}".format(epoch))
-        train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
-        val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
-        epoch += 1
-
-    saver.save(sess, os.path.join(FLAGS.output_dir, 'model_pretrain_' + dataset.dataset_label))
-
     for cycle in range(FLAGS.masks_lasso_cycles):
         print("Lasso cycle {}".format(cycle))
 

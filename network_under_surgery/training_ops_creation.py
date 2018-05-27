@@ -51,13 +51,10 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
     loss = regularizer_loss + tf.reduce_mean(
         tf.nn.softmax_cross_entropy_with_logits_v2(labels=network_target, logits=network_logits))
 
-    masks_loss = None
-    masks_lasso_lambda = None
-    if "lasso" in FLAGS.task:
-        masks_lasso_lambda = tf.Variable(FLAGS.masks_lasso_lambda_step, trainable=False, name="masks_lasso_lambda")
-        all_masks = tf.concat(tf.get_collection(MASKS_COLLECTION), axis=0)
-        number_of_channels_loss = masks_lasso_lambda * tf.reduce_mean(tf.abs(all_masks))
-        masks_loss = loss + number_of_channels_loss
+    masks_lasso_lambda = tf.Variable(FLAGS.masks_lasso_lambda_step, trainable=False, name="masks_lasso_lambda")
+    all_masks = tf.concat(tf.get_collection(MASKS_COLLECTION), axis=0)
+    number_of_channels_loss = masks_lasso_lambda * tf.reduce_mean(tf.abs(all_masks))
+    masks_loss = loss + number_of_channels_loss
 
     direct_summaries['accuracy'] = tf.summary.scalar('accuracy', accuracy_op)
     direct_summaries['loss'] = tf.summary.scalar('loss', loss)
@@ -78,15 +75,14 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
             loss=loss,
             global_step=tf.train.get_global_step(),
             var_list=tf.get_collection(MASKABLE_TRAINABLES))
-        update_masks_op = None
-        if FLAGS.task == "train_lasso":
-            masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
-            update_masks_op = masks_optimizer.minimize(
-                loss=masks_loss,
-                global_step=tf.train.get_global_step(),
-                var_list=tf.get_collection(MASKS_COLLECTION))
-            update_masks_lambda_op = tf.assign(masks_lasso_lambda, masks_lasso_lambda + FLAGS.masks_lasso_lambda_step)
-            update_masks_op = tf.group(update_masks_op, update_masks_lambda_op)
+
+        masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
+        update_masks_op = masks_optimizer.minimize(
+            loss=masks_loss,
+            global_step=tf.train.get_global_step(),
+            var_list=tf.get_collection(MASKS_COLLECTION))
+        update_masks_lambda_op = tf.assign(masks_lasso_lambda, masks_lasso_lambda + FLAGS.masks_lasso_lambda_step)
+        update_masks_op = tf.group(update_masks_op, update_masks_lambda_op)
 
     Network = namedtuple("Network", "input_plh, target_plh, network_logits, train_op, "
                                     "is_training_assign_op, is_training_plh, "
