@@ -1,6 +1,6 @@
 import datetime
 from collections import namedtuple
-from bonesaw.masked_layers import MASKS_COLLECTION, MASKABLE_TRAINABLES
+from bonesaw.masked_layers import MASKS_COLLECTION, MASKABLE_TRAINABLES, LO_LOSSES_COLLECTION, LO_VARIABLES_COLLECTION
 
 import tensorflow as tf
 
@@ -51,10 +51,15 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
     loss = regularizer_loss + tf.reduce_mean(
         tf.nn.softmax_cross_entropy_with_logits_v2(labels=network_target, logits=network_logits))
 
-    masks_lasso_lambda = tf.Variable(FLAGS.masks_lasso_lambda_step, trainable=False, name="masks_lasso_lambda")
+    lasso_masks_lambda = tf.Variable(FLAGS.masks_lasso_lambda_step, trainable=False, name="lasso_masks_lambda")
     all_masks = tf.concat(tf.get_collection(MASKS_COLLECTION), axis=0)
-    number_of_channels_loss = masks_lasso_lambda * tf.reduce_mean(tf.abs(all_masks))
-    masks_loss = loss + number_of_channels_loss
+    number_of_channels_loss = lasso_masks_lambda * tf.reduce_mean(tf.abs(all_masks))
+    lasso_masks_loss = loss + number_of_channels_loss
+
+    l0_masks_lambda = tf.Variable(FLAGS.masks_l0_lambda_step, trainable=False, name="l0_masks_lambda")
+    l0_complexities = tf.get_collection(LO_LOSSES_COLLECTION)
+    l0_loss = l0_masks_lambda*tf.reduce_sum(l0_complexities)
+    l0_masks_loss = loss + l0_loss
 
     direct_summaries['accuracy'] = tf.summary.scalar('accuracy', accuracy_op)
     direct_summaries['loss'] = tf.summary.scalar('loss', loss)
@@ -76,20 +81,28 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
             global_step=tf.train.get_global_step(),
             var_list=tf.get_collection(MASKABLE_TRAINABLES))
 
-        masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
-        update_masks_op = masks_optimizer.minimize(
-            loss=masks_loss,
+        lasso_masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
+        lasso_update_masks_op = lasso_masks_optimizer.minimize(
+            loss=lasso_masks_loss,
             global_step=tf.train.get_global_step(),
             var_list=tf.get_collection(MASKS_COLLECTION))
-        update_masks_lambda_op = tf.assign(masks_lasso_lambda, masks_lasso_lambda + FLAGS.masks_lasso_lambda_step)
-        update_masks_op = tf.group(update_masks_op, update_masks_lambda_op)
+        update_lasso_masks_lambda_op = tf.assign(lasso_masks_lambda, lasso_masks_lambda + FLAGS.masks_lasso_lambda_step)
+        lasso_update_masks_op = tf.group(lasso_update_masks_op, update_lasso_masks_lambda_op)
+
+        l0_masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
+        l0_update_masks_op = l0_masks_optimizer.minimize(
+            loss=l0_masks_loss,
+            global_step=tf.train.get_global_step(),
+            var_list=tf.get_collection(LO_VARIABLES_COLLECTION))
+        update_l0_masks_lambda_op = tf.assign(l0_masks_lambda, l0_masks_lambda + FLAGS.masks_lasso_lambda_step)
+        l0_update_masks_op = tf.group(l0_update_masks_op, update_l0_masks_lambda_op)
 
     Network = namedtuple("Network", "input_plh, target_plh, network_logits, train_op, "
                                     "is_training_assign_op, is_training_plh, "
                                     "classes_op, probabilities_op, accuracy_op, "
                                     "loss, mask_update_op, global_step, "
                                     "direct_summaries, mean_summaries, mean_summaries_plh, "
-                                    "update_masks_op")
+                                    "lasso_update_masks_op, l0_update_masks_op")
     return Network(
         input_plh=network_input,
         target_plh=network_target,
@@ -106,5 +119,6 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
         direct_summaries=direct_summaries,
         mean_summaries=mean_summaries,
         mean_summaries_plh=mean_summaries_plh,
-        update_masks_op=update_masks_op
+        lasso_update_masks_op=lasso_update_masks_op,
+        l0_update_masks_op=l0_update_masks_op
     )

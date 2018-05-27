@@ -18,9 +18,40 @@ WEIGHTS_COLLECTION = 'kernels'
 BIAS_NAME = 'bias'
 BIASES_COLLECTION = 'biases'
 MASKABLE_TRAINABLES = 'maskable_trainables'
+LO_VARIABLES_COLLECTION = "l0_variables"
+LO_LOSSES_COLLECTION = "l0_losses"
+LO_TRAIN_TOGGLE_ON = "l0_train_toggle_on_ops"
+LO_TRAIN_TOGGLE_OFF = "l0_train_toggle_off_ops"
+
+class L0MaskableMixin:
+    def init_l0_masks(self, units):
+        log_epsilon = 0.0001
+        beta_epsilon = 0.01
+        ksi = 1.1
+        gamma = -0.1
+        self.l0_alpha = tf.Variable([1.0] * units, name="hard_concrete_alpha", dtype=tf.float32)
+        self.l0_beta = tf.Variable([2.5] * units, name="hard_concrete_beta", dtype=tf.float32)
+        tf.add_to_collection(LO_VARIABLES_COLLECTION, self.l0_alpha)
+        tf.add_to_collection(LO_VARIABLES_COLLECTION, self.l0_beta)
+        self.l0_u = tf.random_uniform(shape=(units,), minval=0, maxval=1, name="hard_concrete_u_input",
+                                      dtype=tf.float32)
+        self.l0_s = tf.nn.sigmoid((tf.log(self.l0_u + log_epsilon) - tf.log(1.0 - self.l0_u + log_epsilon) + self.l0_alpha) / (
+                                          tf.abs(self.l0_beta) + beta_epsilon))
+        # + tf.log(self.l0_alpha + log_epsilon)
+        self.l0_s_stretched = self.l0_s * (ksi - gamma) + gamma
+        self.l0_z = tf.minimum(1.0, tf.maximum(0.0, self.l0_s_stretched))
+        self.L0_complexity = tf.reduce_mean(
+            tf.sigmoid(self.l0_alpha - tf.abs(self.l0_beta) * tf.log(-gamma / ksi)), name="L0_complexity")
+        tf.add_to_collection(LO_LOSSES_COLLECTION, self.L0_complexity)
+
+        self.l0_train_toggle = tf.Variable(False, trainable=False, name="l0_train_toggle")
+        self.l0_train_toggle_on = tf.assign(self.l0_train_toggle, True)
+        tf.add_to_collection(LO_TRAIN_TOGGLE_ON, self.l0_train_toggle_on)
+        self.l0_train_toggle_off = tf.assign(self.l0_train_toggle, False)
+        tf.add_to_collection(LO_TRAIN_TOGGLE_OFF, self.l0_train_toggle_off)
 
 
-class MaskedConv2D(Conv2D):
+class MaskedConv2D(Conv2D, L0MaskableMixin):
     def __init__(self, **kwargs):
         super(MaskedConv2D, self).__init__(**kwargs)
 
@@ -37,18 +68,22 @@ class MaskedConv2D(Conv2D):
         input_dim = input_shape[channel_axis].value
         kernel_shape = self.kernel_size + (input_dim, self.filters)
 
+        self.init_l0_masks(self.filters)
+
         self.mask = self.add_variable(
             name=MASK_NAME,
             shape=(self.filters,),
             initializer=init_ops.ones_initializer(),
             trainable=True,
             dtype=self.dtype)
+
         self.capture_mask = self.add_variable(
             name=CAPTURE_MASK_NAME,
             shape=(self.filters,),
             initializer=init_ops.ones_initializer(),
             trainable=False,
             dtype=self.dtype)
+
         self.mask_plh = tf.placeholder(tf.float32, (self.filters,), 'mask_plh')
         self.capture_mask_plh = tf.placeholder(tf.float32, (self.filters,), 'capture_mask_plh')
 
@@ -103,7 +138,8 @@ class MaskedConv2D(Conv2D):
             else:
                 outputs = tf.nn.bias_add(outputs, self.bias, data_format='NHWC')
 
-        outputs = tf.multiply(self.mask, outputs)
+        outputs = tf.cond(self.l0_train_toggle, lambda: tf.multiply(self.l0_z, outputs),
+                          lambda: tf.multiply(self.mask, outputs))
         outputs = tf.multiply(self.capture_mask, outputs, MASKED_OUTPUT_NAME)
 
         if self.activation is not None:
@@ -111,7 +147,7 @@ class MaskedConv2D(Conv2D):
         return outputs
 
 
-class MaskedDense(base.Layer):
+class MaskedDense(base.Layer, L0MaskableMixin):
     def __init__(self,
                  units,
                  activation=None,
@@ -153,6 +189,8 @@ class MaskedDense(base.Layer):
             regularizer=self.kernel_regularizer,
             dtype=self.dtype,
             trainable=True)
+
+        self.init_l0_masks(self.units)
 
         self.mask = self.add_variable(
             name=MASK_NAME,
@@ -209,7 +247,9 @@ class MaskedDense(base.Layer):
         if self.use_bias:
             outputs = nn.bias_add(outputs, self.bias)
 
-        outputs = tf.multiply(self.mask, outputs)
+        # outputs = tf.multiply(self.mask, outputs)
+        outputs = tf.cond(self.l0_train_toggle, lambda: tf.multiply(self.l0_z, outputs),
+                          lambda: tf.multiply(self.mask, outputs))
         outputs = tf.multiply(self.capture_mask, outputs, MASKED_OUTPUT_NAME)
 
         if self.activation is not None:
