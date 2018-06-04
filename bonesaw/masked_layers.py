@@ -23,25 +23,36 @@ LO_LOSSES_COLLECTION = "l0_losses"
 LO_TRAIN_TOGGLE_ON = "l0_train_toggle_on_ops"
 LO_TRAIN_TOGGLE_OFF = "l0_train_toggle_off_ops"
 
+
 class L0MaskableMixin:
     def init_l0_masks(self, units):
         log_epsilon = 0.0001
         beta_epsilon = 0.01
         ksi = 1.1
         gamma = -0.1
-        self.l0_alpha = tf.Variable([1.0] * units, name="hard_concrete_alpha", dtype=tf.float32)
-        self.l0_beta = tf.Variable([2.5] * units, name="hard_concrete_beta", dtype=tf.float32)
+        self.l0_alpha = tf.Variable([1.5] * units, name="hard_concrete_alpha", dtype=tf.float32)
+        self.l0_beta = tf.Variable([0.3] * units, name="hard_concrete_beta", dtype=tf.float32, trainable=False)
+
+        self.l0_alpha_plh = tf.placeholder(tf.float32, (units,), 'hard_concrete_alpha_plh')
+        self.l0_beta_plh = tf.placeholder(tf.float32, (units,), 'hard_concrete_plh')
+
+        self.l0_alpha_set_op = tf.assign(self.l0_alpha, self.l0_alpha_plh, name="l0_alpha_set_op")
+        self.l0_beta_set_op = tf.assign(self.l0_beta, self.l0_beta_plh, name="l0_beta_set_op")
+
         tf.add_to_collection(LO_VARIABLES_COLLECTION, self.l0_alpha)
-        tf.add_to_collection(LO_VARIABLES_COLLECTION, self.l0_beta)
+        # tf.add_to_collection(LO_VARIABLES_COLLECTION, self.l0_beta) # seems to be better without it
+
+        self.abs_l0_beta = tf.abs(self.l0_beta)
         self.l0_u = tf.random_uniform(shape=(units,), minval=0, maxval=1, name="hard_concrete_u_input",
                                       dtype=tf.float32)
         self.l0_s = tf.nn.sigmoid((tf.log(self.l0_u + log_epsilon) - tf.log(1.0 - self.l0_u + log_epsilon) + self.l0_alpha) / (
-                                          tf.abs(self.l0_beta) + beta_epsilon))
-        # + tf.log(self.l0_alpha + log_epsilon)
+                self.abs_l0_beta + beta_epsilon))
+
         self.l0_s_stretched = self.l0_s * (ksi - gamma) + gamma
         self.l0_z = tf.minimum(1.0, tf.maximum(0.0, self.l0_s_stretched))
-        self.L0_complexity = tf.reduce_mean(
-            tf.sigmoid(self.l0_alpha - tf.abs(self.l0_beta) * tf.log(-gamma / ksi)), name="L0_complexity")
+
+        self.L0_complexity = tf.nn.sigmoid(self.l0_alpha/2.0)
+
         tf.add_to_collection(LO_LOSSES_COLLECTION, self.L0_complexity)
 
         self.l0_train_toggle = tf.Variable(False, trainable=False, name="l0_train_toggle")

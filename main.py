@@ -4,11 +4,12 @@ import shutil
 
 import tensorflow as tf
 
+from bonesaw.masked_layers import LO_TRAIN_TOGGLE_OFF
 from bonesaw.weights_stripping import repack_graph
 from network_under_surgery.model_creation import get_layers_names_for_dataset
 from network_under_surgery.training import network_pretrain, train_mask_bruteforce, train_mask_lasso, train_mask_l0
 from network_under_surgery.data_reading import load_dataset_to_memory
-from network_under_surgery.training_ops_creation import create_training_ops, create_network_under_surgery
+from network_under_surgery.training_ops_creation import create_network_under_surgery
 from result_show import show_results_against_compression
 
 Flags = tf.app.flags
@@ -23,7 +24,7 @@ Flags.DEFINE_float('l2', 0.00025, 'l2 regularizer')
 Flags.DEFINE_float('l1', 0.00005, 'l2 regularizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 20, 'The max epoch for the training')
+Flags.DEFINE_integer('epochs', 150, 'The max epoch for the training')
 Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
 Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
 
@@ -33,12 +34,15 @@ Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
-Flags.DEFINE_float('masks_l0_lambda_step', 0.01, '---')
-Flags.DEFINE_integer('masks_l0_cycles', 10, '---')
+Flags.DEFINE_float('masks_l0_lambda_step', 0.000000005, '---')
+Flags.DEFINE_float('masks_l0_lambda_max', 0.0000001, '---')
+Flags.DEFINE_integer('masks_l0_cycles', 50, '---')
 Flags.DEFINE_integer('masks_l0_epochs', 1, '---')
 Flags.DEFINE_integer('masks_l0_epochs_finetune', 1, '---')
+Flags.DEFINE_float('masks_l0_learning_rate', 0.002, 'The learning rate for the network')
+Flags.DEFINE_integer('masks_l0_epochs_final_finetune', 20, '---')
 
-Flags.DEFINE_string('task', "mask_l0", 'What we gonna do')
+Flags.DEFINE_string('task', "only_pretrain", 'What we gonna do')
 Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
@@ -75,13 +79,13 @@ def relocate_trained_model(model_folder, prefix, FLAGS):
         print("Could not relocate trained model: ", str(e))
 
 
-if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso", "train_l0", "mask_bruteforce", "mask_lasso", "mask_l0"]:
+if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso",
+                  "train_l0", "mask_bruteforce", "mask_lasso", "mask_l0"]:
 
     with tf.Session() as sess:
         model_folder = dataset.dataset_label + "_model_pretrained_bak"
         last_epoch = 0
         network, saver, train_writer, stripable_layers = create_network_under_surgery(sess, dataset, FLAGS)
-
         if "mask" not in FLAGS.task:
             print("Begin training")
             last_epoch = network_pretrain(sess, saver, train_writer, network, dataset, FLAGS)
@@ -117,7 +121,7 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
     model_folder = dataset.dataset_label + "_model_masked_bak"
     repacked_weights_list, compressions = None, []
     with tf.Session() as sess:
-        network, saver, train_writer, _ = create_network_under_surgery(sess, dataset, FLAGS)
+        network, saver, train_writer, stripable_layers = create_network_under_surgery(sess, dataset, FLAGS)
         ckpt = tf.train.get_checkpoint_state(model_folder)
         saver.restore(sess, ckpt.model_checkpoint_path)
 

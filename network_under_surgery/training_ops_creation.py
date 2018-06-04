@@ -26,14 +26,14 @@ def create_network_under_surgery(sess, dataset, FLAGS, repacked_weights=None, la
         network_logits, stripable_layers = create_network_fn(network_input, dataset.classes_num, is_training)
 
     print("Network created ({}), preparing ops".format(datetime.datetime.now() - begin_ts))
-    network = create_training_ops(network_input, network_logits, network_target, is_training_assign_op, is_training_plh, FLAGS)
+    network = create_training_ops(network_input, network_logits, network_target, stripable_layers, is_training_assign_op, is_training_plh, FLAGS)
     train_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
     saver = tf.train.Saver()
     sess.run(tf.global_variables_initializer())
     return network, saver, train_writer, stripable_layers
 
 
-def create_training_ops(network_input, network_logits, network_target, is_training_assign_op, is_training_plh, FLAGS):
+def create_training_ops(network_input, network_logits, network_target, stripable_layers, is_training_assign_op, is_training_plh, FLAGS):
     global_step = tf.train.get_or_create_global_step()
     mask_update_op = None
     direct_summaries, mean_summaries, mean_summaries_plh = {}, {}, {}
@@ -43,8 +43,16 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
     accuracy_op = tf.reduce_mean(
         tf.to_float(tf.equal(tf.argmax(input=network_target, axis=1, output_type=tf.int32), classes_op)))
 
+    if stripable_layers is None:
+        main_trainable_weights = tf.trainable_variables()
+    else:
+        all_trainable_variables = tf.trainable_variables()
+        trainable_variables_from_nonmasked_layers = [v for v in all_trainable_variables if
+                                                     v.name.split("/")[0] not in stripable_layers.keys()]
+        main_trainable_weights = tf.get_collection(MASKABLE_TRAINABLES) + trainable_variables_from_nonmasked_layers
+
     regularizer_loss = 0
-    for weight in tf.get_collection(MASKABLE_TRAINABLES):
+    for weight in main_trainable_weights:
         regularizer_loss += FLAGS.l2 * tf.nn.l2_loss(weight)
         regularizer_loss += FLAGS.l1 * tf.reduce_sum(tf.abs(weight))
 
@@ -58,7 +66,7 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
 
     l0_masks_lambda = tf.Variable(FLAGS.masks_l0_lambda_step, trainable=False, name="l0_masks_lambda")
     l0_complexities = tf.get_collection(LO_LOSSES_COLLECTION)
-    l0_loss = l0_masks_lambda*tf.reduce_sum(l0_complexities)
+    l0_loss = l0_masks_lambda*tf.reduce_mean(tf.concat(l0_complexities, axis=-1))
     l0_masks_loss = loss + l0_loss
 
     direct_summaries['accuracy'] = tf.summary.scalar('accuracy', accuracy_op)
@@ -79,7 +87,7 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
         train_op = optimizer.minimize(
             loss=loss,
             global_step=tf.train.get_global_step(),
-            var_list=tf.get_collection(MASKABLE_TRAINABLES))
+            var_list=main_trainable_weights)
 
         lasso_masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
         lasso_update_masks_op = lasso_masks_optimizer.minimize(
@@ -87,22 +95,26 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
             global_step=tf.train.get_global_step(),
             var_list=tf.get_collection(MASKS_COLLECTION))
         update_lasso_masks_lambda_op = tf.assign(lasso_masks_lambda, lasso_masks_lambda + FLAGS.masks_lasso_lambda_step)
-        lasso_update_masks_op = tf.group(lasso_update_masks_op, update_lasso_masks_lambda_op)
 
-        l0_masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
+        l0_masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.masks_l0_learning_rate, beta1=FLAGS.beta1)
         l0_update_masks_op = l0_masks_optimizer.minimize(
             loss=l0_masks_loss,
             global_step=tf.train.get_global_step(),
             var_list=tf.get_collection(LO_VARIABLES_COLLECTION))
-        update_l0_masks_lambda_op = tf.assign(l0_masks_lambda, l0_masks_lambda + FLAGS.masks_lasso_lambda_step)
-        l0_update_masks_op = tf.group(l0_update_masks_op, update_l0_masks_lambda_op)
+        update_l0_masks_lambda_op = tf.cond(
+            tf.less_equal(l0_masks_lambda, FLAGS.masks_l0_lambda_max),
+            lambda: tf.assign(l0_masks_lambda, l0_masks_lambda + FLAGS.masks_l0_lambda_step),
+            lambda: tf.assign(l0_masks_lambda, l0_masks_lambda)
+        )
 
     Network = namedtuple("Network", "input_plh, target_plh, network_logits, train_op, "
                                     "is_training_assign_op, is_training_plh, "
                                     "classes_op, probabilities_op, accuracy_op, "
                                     "loss, mask_update_op, global_step, "
                                     "direct_summaries, mean_summaries, mean_summaries_plh, "
-                                    "lasso_update_masks_op, l0_update_masks_op")
+                                    "lasso_update_masks_op, l0_update_masks_op, "
+                                    "lasso_masks_loss, l0_masks_loss, "
+                                    "update_l0_masks_lambda_op")
     return Network(
         input_plh=network_input,
         target_plh=network_target,
@@ -120,5 +132,8 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
         mean_summaries=mean_summaries,
         mean_summaries_plh=mean_summaries_plh,
         lasso_update_masks_op=lasso_update_masks_op,
-        l0_update_masks_op=l0_update_masks_op
+        l0_update_masks_op=l0_update_masks_op,
+        lasso_masks_loss=lasso_masks_loss,
+        l0_masks_loss=l0_masks_loss,
+        update_l0_masks_lambda_op=update_l0_masks_lambda_op
     )

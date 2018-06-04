@@ -7,7 +7,7 @@ from random import shuffle
 import tensorflow as tf
 import numpy as np
 
-from bonesaw.masked_layers import LO_VARIABLES_COLLECTION
+from bonesaw.masked_layers import LO_VARIABLES_COLLECTION, LO_TRAIN_TOGGLE_OFF
 from bonesaw.masked_layers import LO_TRAIN_TOGGLE_ON
 
 
@@ -36,10 +36,16 @@ def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_nam
 
     if train_op_name == "lasso_update_masks_op":
         train_op = network.lasso_update_masks_op
+        loss = network.loss
+        update_masks_lambda_op = None
     elif train_op_name == "l0_update_masks_op":
         train_op = network.l0_update_masks_op
+        loss = network.lasso_masks_loss
+        update_masks_lambda_op = network.lasso_update_masks_op
     else:
         train_op = network.train_op
+        loss = network.l0_masks_loss
+        update_masks_lambda_op = network.update_l0_masks_lambda_op
 
     if batches_to_feed is None:
         batches_to_feed = max_batches
@@ -57,7 +63,7 @@ def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_nam
                 })
         else:
             loss, accuracy = sess.run(
-                [network.loss, network.accuracy_op],
+                [loss, network.accuracy_op],
                 feed_dict={
                     network.input_plh: dataset.train_images[batch_idxes],
                     network.target_plh: dataset.train_labels[batch_idxes]
@@ -74,6 +80,10 @@ def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_nam
             step = epoch * summary_step_freq_divisor + batch_num // summary_step_freq_batches
             write_mean_summary(sess, step, network, train_writer, mean_accuracy, mean_loss, tag="train")
             mean_loss, mean_accuracy, summary_batch_num = 0.0, 0.0, 0
+
+    if update_masks_lambda_op is not None:
+        print("Updating masks lambda")
+        sess.run(update_masks_lambda_op)
 
     return mean_loss/batch_num
 
@@ -208,26 +218,47 @@ def train_mask_lasso(sess, saver, train_writer, network, dataset, stripable_laye
 def train_mask_l0(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS):
     epoch = last_epoch
 
-    toggles = tf.get_collection(LO_TRAIN_TOGGLE_ON)
-    for toggle in toggles:
+    for toggle in tf.get_collection(LO_TRAIN_TOGGLE_ON):
         sess.run(toggle)
 
     for cycle in range(FLAGS.masks_l0_cycles):
         print("L0 cycle {}".format(cycle))
+        print("Alpha")
+        print(stripable_layers["conv1"].l0_alpha.eval())
+        print("Beta")
+        print(stripable_layers["conv1"].l0_beta.eval())
 
+        sess.run([network.is_training_assign_op], feed_dict={network.is_training_plh: False})
         for _ in range(FLAGS.masks_l0_epochs):
             print("Epoch {} (L0 mask train)".format(epoch))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_name="l0_update_masks_op")
-            val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             epoch += 1
 
+        sess.run([network.is_training_assign_op], feed_dict={network.is_training_plh: True})
         for _ in range(FLAGS.masks_l0_epochs_finetune):
-            print("Epoch {} (finetune)".format(epoch))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
-            val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             epoch += 1
 
-    # TODO: determination
-    # tf.get_collection(LO_VARIABLES_COLLECTION)[0].eval()
+        val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+
+    for name, layer in stripable_layers.items():
+        alpha = layer.l0_alpha.eval()
+        for i in range(len(alpha)):
+            if alpha[i] > 0.0:
+                alpha[i] = 1.0
+            else:
+                alpha[i] = 0.0
+        sess.run(layer.mask_assign_op, feed_dict={
+            layer.mask_plh: alpha
+        })
+
+    for toggle in tf.get_collection(LO_TRAIN_TOGGLE_OFF):
+        sess.run(toggle)
+
+    sess.run([network.is_training_assign_op], feed_dict={network.is_training_plh: True})
+    for _ in range(FLAGS.masks_l0_epochs_finetune):
+        train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        epoch += 1
+
     print("L0 mask training done, saving model")
     saver.save(sess, os.path.join(FLAGS.output_dir, 'model_' + dataset.dataset_label))
