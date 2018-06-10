@@ -1,7 +1,5 @@
 import datetime
 import os
-from copy import deepcopy
-from math import inf
 from random import shuffle
 
 import tensorflow as tf
@@ -37,15 +35,15 @@ def train_epoch(sess, train_writer, network, dataset, epoch, FLAGS, train_op_nam
 
     if train_op_name == "lasso_update_masks_op":
         train_op = network.lasso_update_masks_op
-        loss = network.loss
-        update_masks_lambda_op = network.update_l0_masks_lambda_op
-    elif train_op_name == "l0_update_masks_op":
-        train_op = network.l0_update_masks_op
         loss = network.lasso_masks_loss
         update_masks_lambda_op = network.update_lasso_masks_lambda_op
+    elif train_op_name == "l0_update_masks_op":
+        train_op = network.l0_update_masks_op
+        loss = network.l0_masks_loss
+        update_masks_lambda_op = network.update_l0_masks_lambda_op
     else:
         train_op = network.train_op
-        loss = network.l0_masks_loss
+        loss = network.loss
         update_masks_lambda_op = None
 
     if batches_to_feed is None:
@@ -146,24 +144,25 @@ def train_with_random_drop(sess, saver, train_writer, network, dataset, last_epo
     masks_plhs = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_PLH_COLLECTION)}
     masks_assign_ops = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_ASSIGN_COLLECTION)}
 
-    for cycle in range(FLAGS.masks_lasso_cycles):
+    for cycle in range(FLAGS.randomdrop_cycles):
         print("Random drop cycle {}".format(cycle))
-
-        for _ in range(FLAGS.masks_lasso_epochs):
-            train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
-            val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
-            epoch += 1
 
         for layer_name, mask_var in masks.items():
             mask_plh = masks_plhs[layer_name]
             mask_assign_op = masks_assign_ops[layer_name]
             mask = mask_var.eval()
-            last_channel_idx = FLAGS.randomdrop_percent*cycle*len(mask)//FLAGS.masks_lasso_cycles
+            last_channel_idx = FLAGS.randomdrop_percent*cycle*len(mask)//FLAGS.randomdrop_cycles
             for channel_idx, m in enumerate(mask):
                 mask[channel_idx] = 0.0 if channel_idx <= last_channel_idx else 1.0
             sess.run([mask_assign_op], feed_dict={
                 mask_plh: mask
             })
+
+        print("Finetuning...".format(cycle))
+        for _ in range(FLAGS.randomdrop_finetune_epochs):
+            train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            epoch += 1
 
     print("Lasso mask training done, saving model")
     saver.save(sess, os.path.join(FLAGS.output_dir, 'model_' + dataset.dataset_label))

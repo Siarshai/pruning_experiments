@@ -6,7 +6,7 @@ import tensorflow as tf
 
 from bonesaw.weights_stripping import repack_graph
 from network_under_surgery.model_creation import get_layers_names_for_dataset
-from network_under_surgery.training import network_pretrain, train_mask_lasso, train_mask_l0
+from network_under_surgery.training import network_pretrain, train_mask_lasso, train_mask_l0, train_with_random_drop
 from network_under_surgery.data_reading import load_dataset_to_memory
 from network_under_surgery.training_ops_creation import create_network_under_surgery
 from result_show import show_results_against_compression
@@ -28,7 +28,8 @@ Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bru
 Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
 
 Flags.DEFINE_float('randomdrop_percent', 0.5, '---')
-Flags.DEFINE_integer('masks_l0_cycles', 30, '---')
+Flags.DEFINE_integer('randomdrop_cycles', 30, '---')
+Flags.DEFINE_integer('randomdrop_finetune_epochs', 3, '---')
 
 Flags.DEFINE_float('masks_lasso_lambda_step', 0.0002, '---')
 Flags.DEFINE_integer('masks_lasso_cycles', 20, '---')
@@ -105,6 +106,10 @@ if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso",
         elif "l0" in FLAGS.task:
             print("Continue training with l0")
             train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
+            need_to_save = True
+        elif "randomdrop" in FLAGS.task:
+            print("Continue training with l0")
+            train_with_random_drop(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
             need_to_save = True
 
         if need_to_save:
