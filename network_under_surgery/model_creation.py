@@ -1,232 +1,203 @@
 import tensorflow as tf
-from tensorflow.python.layers.convolutional import Conv2D
-from tensorflow.python.layers.core import Dense
+from keras.layers import Conv2D, Dense, MaxPooling2D, Flatten, Dropout
 
-from bonesaw.masked_layers import MaskedConv2D, MaskedDense
+from bonesaw.masked_layers import MaskingLayer
 
 
 def create_network_mnist(network_input, classes_num, is_training):
-    conv1 = MaskedConv2D(
+    x = Conv2D(
         filters=16,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
         use_bias=True,
         activation=None,
-        name="conv1")
-    x = conv1.apply(network_input)
+        name="conv1")(network_input)
     x = tf.nn.relu(x, name="conv1_relu")
+    x = MaskingLayer()(x)
 
-    conv2 = MaskedConv2D(
-        filters=32,
-        kernel_size=(3, 3),
-        strides=1,
-        padding="same",
-        use_bias=True,
-        activation=None,
-        name="conv2")
-    x = conv2.apply(x)
-    x = tf.nn.relu(x, name="conv2_relu")
-
-    x = tf.layers.max_pooling2d(
-        inputs=x,
-        pool_size=[2, 2],
-        strides=2,
-        padding="valid",
-        name="conv2_maxpool2d")
-
-    conv3 = MaskedConv2D(
-        filters=32,
-        kernel_size=(3, 3),
-        strides=1,
-        padding="same",
-        use_bias=True,
-        activation=None,
-        name="conv3")
-    x = conv3.apply(x)
-    x = tf.nn.relu(x, name="conv3_relu")
-
-    x = tf.layers.max_pooling2d(
-        inputs=x,
-        pool_size=[2, 2],
-        strides=2,
-        padding="valid",
-        name="conv4_maxpool2d")
-
-    x = tf.layers.flatten(x)
-    x = tf.layers.dropout(x, 0.4, name="conv4_dropout", training=is_training)
-
-    dense1 = MaskedDense(units=48,
-                         activation=tf.nn.relu,
-                         name="dense1")
-    x = dense1.apply(x)
-
-    dense2 = Dense(units=classes_num,
-                   name="dense2_logits")
-    x = dense2.apply(x)
-
-    stripable_layers = {
-        "conv1": conv1, "conv2": conv2, "conv3": conv3
-    }
-    return x, stripable_layers
-
-
-def create_network_cifar_10(network_input, classes_num, is_training):
-    conv1 = MaskedConv2D(
-        filters=16,
-        kernel_size=(3, 3),
-        strides=1,
-        padding="same",
-        use_bias=True,
-        activation=None,
-        name="conv1")
-    x = conv1.apply(network_input)
-    x = tf.nn.relu(x, name="conv1_relu")
-
-    conv2 = MaskedConv2D(
+    x = Conv2D(
         filters=24,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
         use_bias=True,
         activation=None,
-        name="conv2")
-    x = conv2.apply(x)
+        name="conv2")(x)
     x = tf.nn.relu(x, name="conv2_relu")
+    x = MaskingLayer()(x)
 
-    x = tf.layers.max_pooling2d(
-        inputs=x,
+    x = MaxPooling2D(
         pool_size=[2, 2],
-        strides=2,
         padding="valid",
-        name="conv2_maxpool2d")
+        name="conv2_maxpool2d"
+    )(x)
 
-    conv3 = MaskedConv2D(
+    x = Conv2D(
         filters=32,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
         use_bias=True,
         activation=None,
-        name="conv3")
-    x = conv3.apply(x)
-    x = tf.nn.relu(x, name="conv3_relu")
-
-    conv4 = MaskedConv2D(
-        filters=32,
-        kernel_size=(3, 3),
-        strides=1,
-        padding="same",
-        use_bias=True,
-        activation=None,
-        name="conv4")
-    x = conv4.apply(x)
+        name="conv4")(x)
     x = tf.nn.relu(x, name="conv4_relu")
+    x = MaskingLayer()(x)
 
-    x = tf.layers.max_pooling2d(
-        inputs=x,
+    x = MaxPooling2D(
         pool_size=[2, 2],
-        strides=2,
         padding="valid",
-        name="conv4_maxpool2d")
+        name="conv4_maxpool2d"
+    )(x)
 
-    x = tf.layers.flatten(x)
-    x = tf.layers.dropout(x, 0.5, name="conv4_dropout", training=is_training)
+    x = Flatten()(x)
+    x = Dropout(0.5, name="conv4_dropout")(x, training=is_training)
 
-    dense1 = MaskedDense(units=48,
-                         activation=tf.nn.relu,
-                         name="dense1")
-    x = dense1.apply(x)
+    x = Dense(units=48, activation=tf.nn.relu, name="dense1")(x)
+    x = MaskingLayer()(x)
 
-    dense2 = Dense(units=classes_num,
-                   name="dense2_logits")
-    x = dense2.apply(x)
+    x = Dense(units=classes_num, name="dense2_logits")(x)
 
-    stripable_layers = {
-        "conv1": conv1, "conv2": conv2, "conv3": conv3, "conv4": conv4, "dense1": dense1
-    }
-    return x, stripable_layers
+    return x
+
+
+def create_network_cifar_10(network_input, classes_num, is_training):
+    x = Conv2D(
+        filters=16,
+        kernel_size=(3, 3),
+        strides=1,
+        padding="same",
+        use_bias=True,
+        activation=None,
+        name="conv1")(network_input)
+    x = tf.nn.relu(x, name="conv1_relu")
+    x = MaskingLayer()(x)
+
+    x = Conv2D(
+        filters=24,
+        kernel_size=(3, 3),
+        strides=1,
+        padding="same",
+        use_bias=True,
+        activation=None,
+        name="conv2")(x)
+    x = tf.nn.relu(x, name="conv2_relu")
+    x = MaskingLayer()(x)
+
+    x = MaxPooling2D(
+        pool_size=[2, 2],
+        padding="valid",
+        name="conv2_maxpool2d"
+    )(x)
+
+    x = Conv2D(
+        filters=32,
+        kernel_size=(3, 3),
+        strides=1,
+        padding="same",
+        use_bias=True,
+        activation=None,
+        name="conv3")(x)
+    x = tf.nn.relu(x, name="conv3_relu")
+    x = MaskingLayer()(x)
+
+    x = Conv2D(
+        filters=32,
+        kernel_size=(3, 3),
+        strides=1,
+        padding="same",
+        use_bias=True,
+        activation=None,
+        name="conv4")(x)
+    x = tf.nn.relu(x, name="conv4_relu")
+    x = MaskingLayer()(x)
+
+    x = MaxPooling2D(
+        pool_size=[2, 2],
+        padding="valid",
+        name="conv4_maxpool2d"
+    )(x)
+
+    x = Flatten()(x)
+    x = Dropout(0.5, name="conv4_dropout")(x, training=is_training)
+
+    x = Dense(units=48, activation=tf.nn.relu, name="dense1")(x)
+    x = MaskingLayer()(x)
+
+    x = Dense(units=classes_num, name="dense2_logits")(x)
+
+    return x
 
 
 def create_network_cifar_100(network_input, classes_num, is_training):
-    conv1 = MaskedConv2D(
+    x = Conv2D(
         filters=32,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
         use_bias=True,
         activation=None,
-        name="conv1")
-    x = conv1.apply(network_input)
+        name="conv1")(network_input)
     x = tf.nn.relu(x, name="conv1_relu")
+    x = MaskingLayer()(x)
 
-    conv2 = MaskedConv2D(
+    x = Conv2D(
         filters=48,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
         use_bias=True,
         activation=None,
-        name="conv2")
-    x = conv2.apply(x)
+        name="conv2")(x)
     x = tf.nn.relu(x, name="conv2_relu")
+    x = MaskingLayer()(x)
 
-    x = tf.layers.max_pooling2d(
-        inputs=x,
+    x = MaxPooling2D(
         pool_size=[2, 2],
-        strides=2,
         padding="valid",
-        name="conv2_maxpool2d")
+        name="conv2_maxpool2d"
+    )(x)
 
-    conv3 = MaskedConv2D(
+    x = Conv2D(
         filters=64,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
         use_bias=True,
         activation=None,
-        name="conv3")
-    x = conv3.apply(x)
+        name="conv3")(x)
     x = tf.nn.relu(x, name="conv3_relu")
+    x = MaskingLayer()(x)
 
-    conv4 = MaskedConv2D(
+    x = Conv2D(
         filters=96,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
         use_bias=True,
         activation=None,
-        name="conv4")
-    x = conv4.apply(x)
+        name="conv4")(x)
     x = tf.nn.relu(x, name="conv4_relu")
+    x = MaskingLayer()(x)
 
-    x = tf.layers.max_pooling2d(
-        inputs=x,
+    x = MaxPooling2D(
         pool_size=[2, 2],
-        strides=2,
         padding="valid",
-        name="conv4_maxpool2d")
+        name="conv4_maxpool2d"
+    )(x)
 
-    x = tf.layers.flatten(x)
-    x = tf.layers.dropout(x, 0.5, name="conv4_dropout", training=is_training)
+    x = Flatten()(x)
+    x = Dropout(0.5, name="conv4_dropout")(x, training=is_training)
 
-    dense1 = MaskedDense(units=128,
-                         activation=tf.nn.relu,
-                         name="dense1")
-    x = dense1.apply(x)
-    dense2 = MaskedDense(units=128,
-                         activation=tf.nn.relu,
-                         name="dense1")
-    x = dense2.apply(x)
+    x = Dense(units=128, activation=tf.nn.relu, name="dense1")(x)
+    x = MaskingLayer()(x)
 
-    dense3 = Dense(units=classes_num,
-                   name="dense2_logits")
-    x = dense3.apply(x)
+    x = Dense(units=128, activation=tf.nn.relu, name="dense2")(x)
+    x = MaskingLayer()(x)
 
-    stripable_layers = {
-        "conv1": conv1, "conv2": conv2, "conv3": conv3, "conv4": conv4, "dense1": dense1, "dense2": dense2
-    }
-    return x, stripable_layers
+    x = Dense(units=classes_num, name="dense4_logits")(x)
+
+    return x
 
 
 def get_create_network_function(dataset_label):

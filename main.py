@@ -4,10 +4,9 @@ import shutil
 
 import tensorflow as tf
 
-from bonesaw.masked_layers import LO_TRAIN_TOGGLE_OFF
 from bonesaw.weights_stripping import repack_graph
 from network_under_surgery.model_creation import get_layers_names_for_dataset
-from network_under_surgery.training import network_pretrain, train_mask_bruteforce, train_mask_lasso, train_mask_l0
+from network_under_surgery.training import network_pretrain, train_mask_lasso, train_mask_l0
 from network_under_surgery.data_reading import load_dataset_to_memory
 from network_under_surgery.training_ops_creation import create_network_under_surgery
 from result_show import show_results_against_compression
@@ -24,9 +23,12 @@ Flags.DEFINE_float('l2', 0.00025, 'l2 regularizer')
 Flags.DEFINE_float('l1', 0.00005, 'l2 regularizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 150, 'The max epoch for the training')
+Flags.DEFINE_integer('epochs', 30, 'The max epoch for the training')
 Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
 Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
+
+Flags.DEFINE_float('randomdrop_percent', 0.5, '---')
+Flags.DEFINE_integer('masks_l0_cycles', 30, '---')
 
 Flags.DEFINE_float('masks_lasso_lambda_step', 0.0002, '---')
 Flags.DEFINE_integer('masks_lasso_cycles', 20, '---')
@@ -34,15 +36,15 @@ Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
-Flags.DEFINE_float('masks_l0_lambda_step', 0.000000005, '---')
-Flags.DEFINE_float('masks_l0_lambda_max', 0.0000001, '---')
-Flags.DEFINE_integer('masks_l0_cycles', 50, '---')
+Flags.DEFINE_float('masks_l0_lambda_step', 1.0, '---')
+Flags.DEFINE_float('masks_l0_lambda_max', 10.0, '---')
+Flags.DEFINE_integer('masks_l0_cycles', 30, '---')
 Flags.DEFINE_integer('masks_l0_epochs', 1, '---')
 Flags.DEFINE_integer('masks_l0_epochs_finetune', 1, '---')
-Flags.DEFINE_float('masks_l0_learning_rate', 0.002, 'The learning rate for the network')
+Flags.DEFINE_float('masks_l0_learning_rate', 0.0035, 'The learning rate for the network')
 Flags.DEFINE_integer('masks_l0_epochs_final_finetune', 20, '---')
 
-Flags.DEFINE_string('task', "only_pretrain", 'What we gonna do')
+Flags.DEFINE_string('task', "mask_l0", 'What we gonna do')
 Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
@@ -85,7 +87,7 @@ if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso",
     with tf.Session() as sess:
         model_folder = dataset.dataset_label + "_model_pretrained_bak"
         last_epoch = 0
-        network, saver, train_writer, stripable_layers = create_network_under_surgery(sess, dataset, FLAGS)
+        network, saver, train_writer = create_network_under_surgery(sess, dataset, FLAGS)
         if "mask" not in FLAGS.task:
             print("Begin training")
             last_epoch = network_pretrain(sess, saver, train_writer, network, dataset, FLAGS)
@@ -96,17 +98,13 @@ if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso",
             saver.restore(sess, ckpt.model_checkpoint_path)
 
         need_to_save = False
-        if "bruteforce" in FLAGS.task:
-            print("Continue training with brute force")
-            train_mask_bruteforce(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS)
-            need_to_save = True
-        elif "lasso" in FLAGS.task:
+        if "lasso" in FLAGS.task:
             print("Continue training with lasso")
-            train_mask_lasso(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS)
+            train_mask_lasso(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
             need_to_save = True
         elif "l0" in FLAGS.task:
             print("Continue training with l0")
-            train_mask_l0(sess, saver, train_writer, network, dataset, stripable_layers, last_epoch, FLAGS)
+            train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
             need_to_save = True
 
         if need_to_save:
@@ -126,14 +124,12 @@ elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
         saver.restore(sess, ckpt.model_checkpoint_path)
 
         if FLAGS.task in ["eval", "eval_repack"]:
-            sess.run([network.is_training_assign_op], feed_dict={network.is_training_plh: False})
             loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
                 network.input_plh: dataset.test_images,
                 network.target_plh: dataset.test_labels
             })
             print("Val loss after loading: {}".format(loss))
             print("Val accuracy after loading: {}".format(accuracy))
-            sess.run([network.is_training_assign_op], feed_dict={network.is_training_plh: True})
 
         if FLAGS.task != "eval_repack_randomdrop":
             random_drop_order = [0.0]

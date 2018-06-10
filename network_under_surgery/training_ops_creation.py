@@ -20,20 +20,19 @@ def create_network_under_surgery(sess, dataset, FLAGS, repacked_weights=None, la
     if repacked_weights is not None and layers_order is not None:
         restore_network_fn = get_restore_network_function(dataset.dataset_label)
         network_logits = restore_network_fn(network_input, layers_order, repacked_weights, debug=False)
-        stripable_layers = None
     else:
         create_network_fn = get_create_network_function(dataset.dataset_label)
-        network_logits, stripable_layers = create_network_fn(network_input, dataset.classes_num, is_training)
+        network_logits = create_network_fn(network_input, dataset.classes_num, is_training)
 
     print("Network created ({}), preparing ops".format(datetime.datetime.now() - begin_ts))
-    network = create_training_ops(network_input, network_logits, network_target, stripable_layers, is_training_assign_op, is_training_plh, FLAGS)
+    network = create_training_ops(network_input, network_logits, network_target, is_training_plh, is_training_assign_op, FLAGS)
     train_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
     saver = tf.train.Saver()
     sess.run(tf.global_variables_initializer())
-    return network, saver, train_writer, stripable_layers
+    return network, saver, train_writer
 
 
-def create_training_ops(network_input, network_logits, network_target, stripable_layers, is_training_assign_op, is_training_plh, FLAGS):
+def create_training_ops(network_input, network_logits, network_target, is_training_plh, is_training_assign_op, FLAGS):
     global_step = tf.train.get_or_create_global_step()
     mask_update_op = None
     direct_summaries, mean_summaries, mean_summaries_plh = {}, {}, {}
@@ -43,13 +42,11 @@ def create_training_ops(network_input, network_logits, network_target, stripable
     accuracy_op = tf.reduce_mean(
         tf.to_float(tf.equal(tf.argmax(input=network_target, axis=1, output_type=tf.int32), classes_op)))
 
-    if stripable_layers is None:
-        main_trainable_weights = tf.trainable_variables()
-    else:
-        all_trainable_variables = tf.trainable_variables()
-        trainable_variables_from_nonmasked_layers = [v for v in all_trainable_variables if
-                                                     v.name.split("/")[0] not in stripable_layers.keys()]
-        main_trainable_weights = tf.get_collection(MASKABLE_TRAINABLES) + trainable_variables_from_nonmasked_layers
+    # all_trainable_variables = tf.trainable_variables()
+    # trainable_variables_from_nonmasked_layers = [v for v in all_trainable_variables if
+    #                                              v.name.split("/")[0] not in stripable_layers.keys()]
+    # main_trainable_weights = tf.get_collection(MASKABLE_TRAINABLES) + trainable_variables_from_nonmasked_layers
+    main_trainable_weights = tf.trainable_variables()
 
     regularizer_loss = 0
     for weight in main_trainable_weights:
@@ -108,19 +105,17 @@ def create_training_ops(network_input, network_logits, network_target, stripable
         )
 
     Network = namedtuple("Network", "input_plh, target_plh, network_logits, train_op, "
-                                    "is_training_assign_op, is_training_plh, "
                                     "classes_op, probabilities_op, accuracy_op, "
                                     "loss, mask_update_op, global_step, "
                                     "direct_summaries, mean_summaries, mean_summaries_plh, "
                                     "lasso_update_masks_op, l0_update_masks_op, "
                                     "lasso_masks_loss, l0_masks_loss, "
-                                    "update_l0_masks_lambda_op")
+                                    "update_lasso_masks_lambda_op, update_l0_masks_lambda_op,"
+                                    "is_training_plh, is_training_assign_op")
     return Network(
         input_plh=network_input,
         target_plh=network_target,
         network_logits=network_logits,
-        is_training_assign_op=is_training_assign_op,
-        is_training_plh=is_training_plh,
         train_op=train_op,
         classes_op=classes_op,
         probabilities_op=probabilities_op,
@@ -135,5 +130,8 @@ def create_training_ops(network_input, network_logits, network_target, stripable
         l0_update_masks_op=l0_update_masks_op,
         lasso_masks_loss=lasso_masks_loss,
         l0_masks_loss=l0_masks_loss,
-        update_l0_masks_lambda_op=update_l0_masks_lambda_op
+        update_lasso_masks_lambda_op=update_lasso_masks_lambda_op,
+        update_l0_masks_lambda_op=update_l0_masks_lambda_op,
+        is_training_plh=is_training_plh,
+        is_training_assign_op=is_training_assign_op
     )
