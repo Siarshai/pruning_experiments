@@ -271,8 +271,10 @@ def train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS
     sess.run([network.is_training_assign_op], feed_dict={
         network.is_training_plh: True
     })
+    print("Finetuning...")
     for _ in range(FLAGS.masks_l0_epochs_finetune):
         train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
         epoch += 1
 
     print("L0 mask training done, saving model")

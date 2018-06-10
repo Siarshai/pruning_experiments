@@ -37,15 +37,15 @@ Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
-Flags.DEFINE_float('masks_l0_lambda_step', 1.0, '---')
-Flags.DEFINE_float('masks_l0_lambda_max', 10.0, '---')
-Flags.DEFINE_integer('masks_l0_cycles', 30, '---')
+Flags.DEFINE_float('masks_l0_lambda_step', 0.01, '---')
+Flags.DEFINE_float('masks_l0_lambda_max', 0.1, '---')
+Flags.DEFINE_integer('masks_l0_cycles', 20, '---')
 Flags.DEFINE_integer('masks_l0_epochs', 1, '---')
-Flags.DEFINE_integer('masks_l0_epochs_finetune', 1, '---')
+Flags.DEFINE_integer('masks_l0_epochs_finetune', 10, '---')
 Flags.DEFINE_float('masks_l0_learning_rate', 0.0035, 'The learning rate for the network')
 Flags.DEFINE_integer('masks_l0_epochs_final_finetune', 20, '---')
 
-Flags.DEFINE_string('task', "mask_l0", 'What we gonna do')
+Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
 Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
@@ -120,68 +120,40 @@ if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso",
             except Exception as e:
                 print("Could not relocate trained model: {}", str(e))
 
-elif FLAGS.task in ["eval", "eval_repack", "eval_repack_randomdrop"]:
+elif FLAGS.task in ["eval", "eval_repack"]:
     model_folder = dataset.dataset_label + "_model_masked_bak"
-    repacked_weights_list, compressions = None, []
     with tf.Session() as sess:
-        network, saver, train_writer, stripable_layers = create_network_under_surgery(sess, dataset, FLAGS)
+        network, saver, train_writer = create_network_under_surgery(sess, dataset, FLAGS)
         ckpt = tf.train.get_checkpoint_state(model_folder)
         saver.restore(sess, ckpt.model_checkpoint_path)
 
-        if FLAGS.task in ["eval", "eval_repack"]:
-            loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
-                network.input_plh: dataset.test_images,
-                network.target_plh: dataset.test_labels
-            })
-            print("Val loss after loading: {}".format(loss))
-            print("Val accuracy after loading: {}".format(accuracy))
-
-        if FLAGS.task != "eval_repack_randomdrop":
-            random_drop_order = [0.0]
-            random_drop_tries = 1
-        else:
-            random_drop_order = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35]
-            random_drop_tries = 3
+        loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
+            network.input_plh: dataset.test_images,
+            network.target_plh: dataset.test_labels
+        })
+        print("Val loss after loading: {}".format(loss))
+        print("Val accuracy after loading: {}".format(accuracy))
 
         if FLAGS.task == "eval":
             exit(0)
 
-        repacked_weights_list = []
-        for random_drop_p in random_drop_order:
-            for random_drop_try in range(random_drop_tries):
-                print("Repacking with {} random drop".format(random_drop_p))
-                evaluated_trainable_variables, compression = repack_graph(
-                    sess.graph, get_layers_names_for_dataset(dataset.dataset_label), random_drop=random_drop_p, debug=False)
-                repacked_weights_list.append(evaluated_trainable_variables)
-                compressions.append(compression)
+        repacked_weights, compression = repack_graph(sess.graph, get_layers_names_for_dataset(dataset.dataset_label), debug=False)
 
-    if FLAGS.task in ["eval_repack", "eval_repack_randomdrop"]:
-        assert repacked_weights_list
+    if FLAGS.task in ["eval_repack"]:
         losses, accuracies = [], []
-        for i, repacked_weights in enumerate(repacked_weights_list):
-            print("{}/{}".format(i+1, len(repacked_weights_list)))
-            with tf.Session() as sess:
-                print("Restoring network with stripped weights...")
-                layers_order = get_layers_names_for_dataset(dataset.dataset_label)
-                network, saver, train_writer, _ = create_network_under_surgery(sess, dataset, FLAGS, repacked_weights, layers_order)
-                print("Running...")
-                loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
-                    network.input_plh: dataset.test_images,
-                    network.target_plh: dataset.test_labels
-                })
-                print("Val loss after repacking: {}".format(loss))
-                print("Val accuracy after repacking: {}".format(accuracy))
-                losses.append(loss)
-                accuracies.append(accuracy)
-        if FLAGS.task == "eval_repack_randomdrop":
-            print(compressions)
-            print(accuracies)
-            print(losses)
-            show_results_against_compression(compressions, accuracies, losses)
-        else:
-            print("compression: {}".format(compressions))
-            print("accuracy: {}".format(accuracies))
-            print("loss: {}".format(losses))
+
+        with tf.Session() as sess:
+            print("Restoring network with stripped weights...")
+            layers_order = get_layers_names_for_dataset(dataset.dataset_label)
+            network, saver, train_writer, _ = create_network_under_surgery(sess, dataset, FLAGS, repacked_weights, layers_order)
+            print("Running...")
+            loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
+                network.input_plh: dataset.test_images,
+                network.target_plh: dataset.test_labels
+            })
+            print("Val loss after repacking: {}".format(loss))
+            print("Val accuracy after repacking: {}".format(accuracy))
+            print("Comporession: {}".format(compression))
 
 
 else:
