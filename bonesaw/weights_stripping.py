@@ -162,13 +162,13 @@ def _strip_empty_weights_conv_to_dense(weights, next_weights, mask):
     return repacked_weights, next_repacked_weights
 
 
-def strip_all_empty_weights(trainable_variables, masks, layer_order, debug=False):
+def strip_all_empty_weights(trainable_variables, masks, layer_order, masking_correspondencies, debug=False):
     for i in range(len(layer_order)-1):
 
         layer_name = layer_order[i]
         next_layer_name = layer_order[i+1]
 
-        mask_name = layer_name + "/" + MASK_NAME
+        mask_name = masking_correspondencies[layer_name] + "/" + MASK_NAME
         weight_name = layer_name + "/" + WEIGHT_NAME
         next_weight_name = next_layer_name + "/" + WEIGHT_NAME
 
@@ -219,7 +219,7 @@ def strip_all_empty_weights(trainable_variables, masks, layer_order, debug=False
     return trainable_variables
 
 
-def repack_graph(graph, layer_order, debug=False):
+def repack_graph(graph, layer_order, masking_correspondencies, debug=False):
     evaluated_trainable_variables = eval_weights_from_graph(graph, collection_name="trainable_variables", debug=debug)
     masks = eval_weights_from_graph(graph, collection_name=MASKS_COLLECTION, debug=debug)
 
@@ -229,7 +229,7 @@ def repack_graph(graph, layer_order, debug=False):
         raise ValueError("No weights to repack")
 
     evaluated_trainable_variables = strip_all_empty_weights(
-        evaluated_trainable_variables, masks, layer_order, debug)
+        evaluated_trainable_variables, masks, layer_order, masking_correspondencies, debug)
 
     repacked_parameters_num = compute_number_of_parameters(evaluated_trainable_variables)
 

@@ -125,6 +125,7 @@ def network_pretrain(sess, saver, train_writer, network, dataset, FLAGS):
     sess.run([network.is_training_assign_op], feed_dict={
         network.is_training_plh: True
     })
+    masks = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_COLLECTION)}
     for _ in range(FLAGS.epochs):
         print("Training epoch {}".format(epoch))
         begin_ts = datetime.datetime.now()
@@ -227,6 +228,8 @@ def train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS
     for toggle in tf.get_collection(LO_TRAIN_TOGGLE_ON):
         sess.run(toggle)
 
+    masks = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_COLLECTION)}
+
     alphas = {var.name.split("/")[0]: var for var in tf.get_collection(LO_VARIABLES_COLLECTION)}
     masks_plhs = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_PLH_COLLECTION)}
     masks_assign_ops = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_ASSIGN_COLLECTION)}
@@ -246,7 +249,8 @@ def train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS
         sess.run([network.is_training_assign_op], feed_dict={
             network.is_training_plh: True
         })
-        for _ in range(FLAGS.masks_l0_epochs_finetune):
+        for finetune_epoch in range(FLAGS.masks_l0_epochs_finetune):
+            print("...subfinetune {}/{}".format(finetune_epoch + 1, FLAGS.masks_l0_epochs_finetune))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             epoch += 1
 
@@ -272,7 +276,8 @@ def train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS
         network.is_training_plh: True
     })
     print("Finetuning...")
-    for _ in range(FLAGS.masks_l0_epochs_finetune):
+    for finetune_epoch in range(FLAGS.masks_l0_epochs_final_finetune):
+        print("...finetune epoch {}/{}".format(finetune_epoch + 1, FLAGS.masks_l0_epochs_final_finetune))
         train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
         val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
         epoch += 1

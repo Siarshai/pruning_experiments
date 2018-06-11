@@ -4,12 +4,12 @@ import shutil
 
 import tensorflow as tf
 
+from bonesaw.masked_layers import LO_TRAIN_TOGGLE_OFF
 from bonesaw.weights_stripping import repack_graph
-from network_under_surgery.model_creation import get_layers_names_for_dataset
+from network_under_surgery.model_creation import get_layers_names_for_dataset, get_masking_correspondencies_for_dataset
 from network_under_surgery.training import network_pretrain, train_mask_lasso, train_mask_l0, train_with_random_drop
 from network_under_surgery.data_reading import load_dataset_to_memory
 from network_under_surgery.training_ops_creation import create_network_under_surgery
-from result_show import show_results_against_compression
 
 Flags = tf.app.flags
 Flags.DEFINE_string('output_dir', None, 'The output directory of the checkpoint')
@@ -37,13 +37,13 @@ Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
 Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
 
-Flags.DEFINE_float('masks_l0_lambda_step', 0.01, '---')
-Flags.DEFINE_float('masks_l0_lambda_max', 0.1, '---')
-Flags.DEFINE_integer('masks_l0_cycles', 20, '---')
+Flags.DEFINE_float('masks_l0_lambda_step', 0.1, '---')
+Flags.DEFINE_float('masks_l0_lambda_max', 1.1, '---')
+Flags.DEFINE_integer('masks_l0_cycles', 8, '---')
 Flags.DEFINE_integer('masks_l0_epochs', 1, '---')
-Flags.DEFINE_integer('masks_l0_epochs_finetune', 10, '---')
-Flags.DEFINE_float('masks_l0_learning_rate', 0.0035, 'The learning rate for the network')
-Flags.DEFINE_integer('masks_l0_epochs_final_finetune', 20, '---')
+Flags.DEFINE_integer('masks_l0_epochs_finetune', 2, '---')
+Flags.DEFINE_float('masks_l0_learning_rate', 0.002, 'The learning rate for the network')
+Flags.DEFINE_integer('masks_l0_epochs_final_finetune', 10, '---')
 
 Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
 Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
@@ -123,9 +123,16 @@ if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso",
 elif FLAGS.task in ["eval", "eval_repack"]:
     model_folder = dataset.dataset_label + "_model_masked_bak"
     with tf.Session() as sess:
+
         network, saver, train_writer = create_network_under_surgery(sess, dataset, FLAGS)
         ckpt = tf.train.get_checkpoint_state(model_folder)
         saver.restore(sess, ckpt.model_checkpoint_path)
+
+        for toggle in tf.get_collection(LO_TRAIN_TOGGLE_OFF):
+            sess.run(toggle)
+        sess.run([network.is_training_assign_op], feed_dict={
+            network.is_training_plh: False
+        })
 
         loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
             network.input_plh: dataset.test_images,
@@ -137,7 +144,11 @@ elif FLAGS.task in ["eval", "eval_repack"]:
         if FLAGS.task == "eval":
             exit(0)
 
-        repacked_weights, compression = repack_graph(sess.graph, get_layers_names_for_dataset(dataset.dataset_label), debug=False)
+        repacked_weights, compression = repack_graph(
+                sess.graph,
+                get_layers_names_for_dataset(dataset.dataset_label),
+                get_masking_correspondencies_for_dataset(dataset.dataset_label),
+                debug=False)
 
     if FLAGS.task in ["eval_repack"]:
         losses, accuracies = [], []
@@ -145,7 +156,7 @@ elif FLAGS.task in ["eval", "eval_repack"]:
         with tf.Session() as sess:
             print("Restoring network with stripped weights...")
             layers_order = get_layers_names_for_dataset(dataset.dataset_label)
-            network, saver, train_writer, _ = create_network_under_surgery(sess, dataset, FLAGS, repacked_weights, layers_order)
+            network, saver, train_writer = create_network_under_surgery(sess, dataset, FLAGS, repacked_weights, layers_order)
             print("Running...")
             loss, accuracy = sess.run([network.loss, network.accuracy_op], feed_dict={
                 network.input_plh: dataset.test_images,
@@ -153,7 +164,6 @@ elif FLAGS.task in ["eval", "eval_repack"]:
             })
             print("Val loss after repacking: {}".format(loss))
             print("Val accuracy after repacking: {}".format(accuracy))
-            print("Comporession: {}".format(compression))
 
 
 else:

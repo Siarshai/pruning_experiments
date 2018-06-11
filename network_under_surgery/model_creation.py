@@ -214,3 +214,14 @@ def get_layers_names_for_dataset(dataset_label):
         "cifar_10": ["conv1", "conv2", "conv3", "conv4", "dense1", "dense2_logits"],
         "cifar_100": ["conv1", "conv2", "conv3", "conv4", "dense1", "dense2_logits"]
     }[dataset_label]
+
+
+def get_masking_correspondencies_for_dataset(dataset_label):
+    return {
+        "cifar_10": {"conv1": "masking_layer_1",
+                     "conv2": "masking_layer_2",
+                     "conv3": "masking_layer_3",
+                     "conv4": "masking_layer_4",
+                     "dense1": "masking_layer_5"},
+    }[dataset_label]
+

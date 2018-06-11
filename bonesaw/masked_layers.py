@@ -4,7 +4,7 @@ from tensorflow.python.ops import init_ops
 from tensorflow.python.framework import ops
 
 
-MASK_NAME = "mask"
+MASK_NAME = "trainable_mask"
 CAPTURE_MASK_NAME = "capture_mask"
 MASKED_OUTPUT_NAME = "masked_output"
 
@@ -67,24 +67,16 @@ class L0MaskableMixin:
 
 class MaskingLayer(Layer, L0MaskableMixin):
     def __init__(self, **kwargs):
-        super(MaskingLayer, self).__init__(**kwargs)
+        super(MaskingLayer, self).__init__(trainable=False, **kwargs)
 
     def build(self, input_shape):
         units = input_shape[-1]  # number of neurons or filters in previous layer
-        self.init_l0_masks(units)
 
-        self.trainable_mask = self.add_weight(
-            name=MASK_NAME,
-            shape=(units,),
-            initializer=init_ops.ones_initializer(),
-            trainable=False,
-            dtype=tf.float32)
-        self.capture_mask = self.add_weight(
-            name=CAPTURE_MASK_NAME,
-            shape=(units,),
-            initializer=init_ops.ones_initializer(),
-            trainable=False,
-            dtype=tf.float32)
+        self.init_l0_masks(units)
+        self.trainable_mask = tf.Variable(
+            [1.0] * units, name=MASK_NAME, dtype=tf.float32, trainable=False)
+        self.capture_mask = tf.Variable(
+            [1.0] * units, name=CAPTURE_MASK_NAME, dtype=tf.float32, trainable=False)
 
         self.trainable_mask_plh = tf.placeholder(tf.float32, (units,), 'mask_plh')
         self.capture_mask_plh = tf.placeholder(tf.float32, (units,), 'capture_mask_plh')
