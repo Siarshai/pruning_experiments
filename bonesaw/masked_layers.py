@@ -21,7 +21,12 @@ WEIGHTS_COLLECTION = 'kernels'
 BIAS_NAME = 'bias'
 BIASES_COLLECTION = 'biases'
 MASKABLE_TRAINABLES = 'maskable_trainables'
+
 LO_VARIABLES_COLLECTION = "l0_variables"
+LO_ALPHA_SET_OP_COLLECTION = "l0_set_op_collection"
+LO_ALPHA_PLH_COLLECTION = "l0_set_op_collection"
+LO_VARIABLES_BETA_COLLECTION = "l0_variables_beta"
+
 LO_LOSSES_COLLECTION = "l0_losses"
 LO_TRAIN_TOGGLE_ON = "l0_train_toggle_on_ops"
 LO_TRAIN_TOGGLE_OFF = "l0_train_toggle_off_ops"
@@ -33,8 +38,8 @@ class L0MaskableMixin:
         beta_epsilon = 0.01
         ksi = 1.1
         gamma = -0.1
-        self.l0_alpha = tf.Variable([1.5] * units, name="hard_concrete_alpha", dtype=tf.float32, trainable=False)
-        self.l0_beta = tf.Variable([0.3] * units, name="hard_concrete_beta", dtype=tf.float32, trainable=False)
+        self.l0_alpha = tf.Variable([2.75] * units, name="hard_concrete_alpha", dtype=tf.float32, trainable=False)
+        self.l0_beta = tf.Variable([0.05] * units, name="hard_concrete_beta", dtype=tf.float32, trainable=False)
 
         self.l0_alpha_plh = tf.placeholder(tf.float32, (units,), 'hard_concrete_alpha_plh')
         self.l0_beta_plh = tf.placeholder(tf.float32, (units,), 'hard_concrete_plh')
@@ -43,7 +48,9 @@ class L0MaskableMixin:
         self.l0_beta_set_op = tf.assign(self.l0_beta, self.l0_beta_plh, name="l0_beta_set_op")
 
         tf.add_to_collection(LO_VARIABLES_COLLECTION, self.l0_alpha)
-        # tf.add_to_collection(LO_VARIABLES_COLLECTION, self.l0_beta) # seems to be better without it
+        tf.add_to_collection(LO_ALPHA_SET_OP_COLLECTION, self.l0_alpha_set_op)
+        tf.add_to_collection(LO_ALPHA_PLH_COLLECTION, self.l0_alpha_plh)
+        tf.add_to_collection(LO_VARIABLES_BETA_COLLECTION, self.l0_beta)
 
         self.abs_l0_beta = tf.abs(self.l0_beta)
         self.l0_u = tf.random_uniform(shape=(units,), minval=0, maxval=1, name="hard_concrete_u_input",

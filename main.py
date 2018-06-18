@@ -4,7 +4,8 @@ import shutil
 
 import tensorflow as tf
 
-from bonesaw.masked_layers import LO_TRAIN_TOGGLE_OFF
+from bonesaw.masked_layers import LO_TRAIN_TOGGLE_OFF, LO_ALPHA_SET_OP_COLLECTION, LO_ALPHA_PLH_COLLECTION, \
+    LO_VARIABLES_COLLECTION
 from bonesaw.weights_stripping import repack_graph
 from network_under_surgery.model_creation import get_layers_names_for_dataset, get_masking_correspondencies_for_dataset
 from network_under_surgery.training import network_pretrain, train_mask_lasso, train_mask_l0, train_with_random_drop
@@ -17,36 +18,37 @@ Flags.DEFINE_string('log_dir', None, 'Summary directory for tensorboard log')
 Flags.DEFINE_string('source_model_name', None, 'Model name to search in output_dir, will train from scratch if None')
 Flags.DEFINE_string('pruned_model_name', "pruned_network", 'Name for saved pruned network')
 
-Flags.DEFINE_float('learning_rate', 0.0015, 'The learning rate for the network')
+Flags.DEFINE_float('learning_rate', 0.001, 'The learning rate for the network')
 Flags.DEFINE_float('beta1', 0.9, 'beta1 of Adam optimizer')
-Flags.DEFINE_float('l2', 0.00025, 'l2 regularizer')
-Flags.DEFINE_float('l1', 0.00005, 'l2 regularizer')
+Flags.DEFINE_float('l2', 0.0000025, 'l2 regularizer')
+Flags.DEFINE_float('l1', 0.00000125, 'l1 regularizer')
 Flags.DEFINE_integer('batch_size', 32, 'Batch size of the input batch')
 Flags.DEFINE_float('decay', 1e-6, 'Gamma of decaying')
-Flags.DEFINE_integer('epochs', 30, 'The max epoch for the training')
-Flags.DEFINE_integer('filters_to_prune', 96, 'Number of filters to drop with bruteforce algorithm')
-Flags.DEFINE_integer('epochs_finetune', 1, 'Fine-tune epochs after filter drop')
+Flags.DEFINE_integer('epochs', 200, 'The max epoch for the training')
 
-Flags.DEFINE_float('randomdrop_percent', 0.5, '---')
-Flags.DEFINE_integer('randomdrop_cycles', 30, '---')
-Flags.DEFINE_integer('randomdrop_finetune_epochs', 3, '---')
+Flags.DEFINE_float('randomdrop_percent', 0.67, '---')
+Flags.DEFINE_integer('randomdrop_cycles', 25, '---')
+Flags.DEFINE_integer('randomdrop_finetune_epochs', 30, '---')
 
-Flags.DEFINE_float('masks_lasso_lambda_step', 0.0002, '---')
-Flags.DEFINE_integer('masks_lasso_cycles', 20, '---')
+Flags.DEFINE_float('masks_lasso_lambda_step', 0.0001, '---')
+Flags.DEFINE_float('masks_lasso_lambda_max', 0.001, '---')
+Flags.DEFINE_float('masks_lasso_learning_rate', 0.0009, '---')
+Flags.DEFINE_integer('masks_lasso_cycles', 30, '---')
 Flags.DEFINE_integer('masks_lasso_epochs', 1, '---')
-Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, 'Fine-tune epochs after filter drop with lasso train')
+Flags.DEFINE_integer('masks_lasso_epochs_finetune', 3, '---')
 Flags.DEFINE_float('masks_lasso_capture_range', 0.075, '---')
+Flags.DEFINE_integer('masks_lasso_epochs_final_finetune', 100, '---')
 
 Flags.DEFINE_float('masks_l0_lambda_step', 0.1, '---')
-Flags.DEFINE_float('masks_l0_lambda_max', 1.1, '---')
-Flags.DEFINE_integer('masks_l0_cycles', 8, '---')
+Flags.DEFINE_float('masks_l0_lambda_max', 1.0, '---')
+Flags.DEFINE_integer('masks_l0_cycles', 50, '---')
 Flags.DEFINE_integer('masks_l0_epochs', 1, '---')
-Flags.DEFINE_integer('masks_l0_epochs_finetune', 2, '---')
-Flags.DEFINE_float('masks_l0_learning_rate', 0.002, 'The learning rate for the network')
-Flags.DEFINE_integer('masks_l0_epochs_final_finetune', 10, '---')
+Flags.DEFINE_integer('masks_l0_epochs_finetune', 3, '---')
+Flags.DEFINE_float('masks_l0_learning_rate', 0.001, '---')
+Flags.DEFINE_integer('masks_l0_epochs_final_finetune', 300, '---')
 
-Flags.DEFINE_string('task', "eval_repack", 'What we gonna do')
-Flags.DEFINE_string('dataset', "cifar_10", 'What to feed to network')
+Flags.DEFINE_string('task', "mask_lasso", 'What we gonna do')
+Flags.DEFINE_string('dataset', "cifar_100", 'What to feed to network')
 
 FLAGS = Flags.FLAGS
 
@@ -83,7 +85,7 @@ def relocate_trained_model(model_folder, prefix, FLAGS):
 
 
 if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso",
-                  "train_l0", "mask_bruteforce", "mask_lasso", "mask_l0"]:
+                  "train_l0", "mask_randomdrop", "mask_lasso", "mask_l0"]:
 
     with tf.Session() as sess:
         model_folder = dataset.dataset_label + "_model_pretrained_bak"
@@ -101,18 +103,19 @@ if FLAGS.task in ["only_pretrain", "train_bruteforce", "train_lasso",
         need_to_save = False
         if "lasso" in FLAGS.task:
             print("Continue training with lasso")
-            train_mask_lasso(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
+            mean_loss, mean_accuracy = train_mask_lasso(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
             need_to_save = True
         elif "l0" in FLAGS.task:
             print("Continue training with l0")
-            train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
+            mean_loss, mean_accuracy = train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
             need_to_save = True
         elif "randomdrop" in FLAGS.task:
             print("Continue training with l0")
-            train_with_random_drop(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
+            mean_loss, mean_accuracy = train_with_random_drop(sess, saver, train_writer, network, dataset, last_epoch, FLAGS)
             need_to_save = True
 
         if need_to_save:
+            print("Finished mask training with {} loss and {} accuracy".format(mean_loss, mean_accuracy))
             model_folder = dataset.dataset_label + "_model_masked_bak"
             print("Training is over, moving model to separate folder")
             try:

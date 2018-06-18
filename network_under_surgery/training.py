@@ -6,7 +6,8 @@ import tensorflow as tf
 import numpy as np
 
 from bonesaw.masked_layers import LO_TRAIN_TOGGLE_OFF, LO_VARIABLES_COLLECTION, MASKS_COLLECTION, \
-    MASKS_ASSIGN_COLLECTION, MASKS_PLH_COLLECTION, CAPTURE_MASKS_PLH_COLLECTION, CAPTURE_MASKS_ASSIGN_COLLECTION
+    MASKS_ASSIGN_COLLECTION, MASKS_PLH_COLLECTION, CAPTURE_MASKS_PLH_COLLECTION, CAPTURE_MASKS_ASSIGN_COLLECTION, \
+    LO_VARIABLES_BETA_COLLECTION
 from bonesaw.masked_layers import LO_TRAIN_TOGGLE_ON
 
 
@@ -118,6 +119,7 @@ def val_epoch(sess, train_writer, network, dataset, epoch, FLAGS):
     sess.run([network.is_training_assign_op], feed_dict={
         network.is_training_plh: True
     })
+    return mean_loss, mean_accuracy
 
 
 def network_pretrain(sess, saver, train_writer, network, dataset, FLAGS):
@@ -125,7 +127,6 @@ def network_pretrain(sess, saver, train_writer, network, dataset, FLAGS):
     sess.run([network.is_training_assign_op], feed_dict={
         network.is_training_plh: True
     })
-    masks = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_COLLECTION)}
     for _ in range(FLAGS.epochs):
         print("Training epoch {}".format(epoch))
         begin_ts = datetime.datetime.now()
@@ -140,12 +141,13 @@ def network_pretrain(sess, saver, train_writer, network, dataset, FLAGS):
 
 def train_with_random_drop(sess, saver, train_writer, network, dataset, last_epoch, FLAGS):
     epoch = last_epoch
+    mean_loss, mean_accuracy = 0.0, 0.0
 
     masks = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_COLLECTION)}
     masks_plhs = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_PLH_COLLECTION)}
     masks_assign_ops = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_ASSIGN_COLLECTION)}
 
-    for cycle in range(FLAGS.randomdrop_cycles):
+    for cycle in range(1, FLAGS.randomdrop_cycles):
         print("Random drop cycle {}".format(cycle))
 
         for layer_name, mask_var in masks.items():
@@ -162,11 +164,12 @@ def train_with_random_drop(sess, saver, train_writer, network, dataset, last_epo
         print("Finetuning...".format(cycle))
         for _ in range(FLAGS.randomdrop_finetune_epochs):
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
-            val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+            mean_loss, mean_accuracy = val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             epoch += 1
 
     print("Lasso mask training done, saving model")
     saver.save(sess, os.path.join(FLAGS.output_dir, 'model_' + dataset.dataset_label))
+    return mean_loss, mean_accuracy
 
 
 def train_mask_lasso(sess, saver, train_writer, network, dataset, last_epoch, FLAGS):
@@ -210,29 +213,38 @@ def train_mask_lasso(sess, saver, train_writer, network, dataset, last_epoch, FL
                 capture_mask_plh: capture_mask
             })
 
-        for _ in range(FLAGS.masks_lasso_epochs_finetune):
-            print("Epoch {} (finetune)".format(epoch))
+        for finetune_epoch in range(FLAGS.masks_lasso_epochs_finetune):
+            print("...finetune {}/{} (finetune)".format(finetune_epoch + 1, FLAGS.masks_lasso_epochs_finetune))
             train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
             epoch += 1
 
         print("Channels left {}".format(channels_left))
 
+    for finetune_epoch in range(FLAGS.masks_lasso_epochs_final_finetune):
+        print("Final finetune {}/{} (finetune)".format(finetune_epoch + 1, FLAGS.masks_lasso_epochs_final_finetune))
+        train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        mean_loss, mean_accuracy = val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        epoch += 1
+
     print("Lasso mask training done, saving model")
     saver.save(sess, os.path.join(FLAGS.output_dir, 'model_' + dataset.dataset_label))
+    return mean_loss, mean_accuracy
 
 
 def train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS):
     epoch = last_epoch
+    mean_loss, mean_accuracy = None, None
 
     for toggle in tf.get_collection(LO_TRAIN_TOGGLE_ON):
         sess.run(toggle)
 
     masks = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_COLLECTION)}
-
     alphas = {var.name.split("/")[0]: var for var in tf.get_collection(LO_VARIABLES_COLLECTION)}
     masks_plhs = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_PLH_COLLECTION)}
     masks_assign_ops = {var.name.split("/")[0]: var for var in tf.get_collection(MASKS_ASSIGN_COLLECTION)}
+
+    betas = {var.name.split("/")[0]: var for var in tf.get_collection(LO_VARIABLES_BETA_COLLECTION)}
 
     for cycle in range(FLAGS.masks_l0_cycles):
         print("L0 cycle {}".format(cycle))
@@ -279,8 +291,9 @@ def train_mask_l0(sess, saver, train_writer, network, dataset, last_epoch, FLAGS
     for finetune_epoch in range(FLAGS.masks_l0_epochs_final_finetune):
         print("...finetune epoch {}/{}".format(finetune_epoch + 1, FLAGS.masks_l0_epochs_final_finetune))
         train_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
-        val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
+        mean_loss, mean_accuracy = val_epoch(sess, train_writer, network, dataset, epoch, FLAGS)
         epoch += 1
 
     print("L0 mask training done, saving model")
     saver.save(sess, os.path.join(FLAGS.output_dir, 'model_' + dataset.dataset_label))
+    return mean_loss, mean_accuracy

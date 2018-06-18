@@ -1,10 +1,11 @@
 import random
 from collections import OrderedDict
 from itertools import cycle
+import tensorflow as tf
 
 import numpy as np
 
-from bonesaw.masked_layers import WEIGHT_NAME, BIAS_NAME, MASK_NAME, MASKS_COLLECTION
+from bonesaw.masked_layers import WEIGHT_NAME, BIAS_NAME, MASK_NAME, MASKS_COLLECTION, LO_VARIABLES_COLLECTION
 
 
 def eval_weights_from_graph(graph, collection_name, debug=False):
@@ -168,6 +169,9 @@ def strip_all_empty_weights(trainable_variables, masks, layer_order, masking_cor
         layer_name = layer_order[i]
         next_layer_name = layer_order[i+1]
 
+        if layer_name not in masking_correspondencies or not masking_correspondencies[layer_name]:
+            continue
+
         mask_name = masking_correspondencies[layer_name] + "/" + MASK_NAME
         weight_name = layer_name + "/" + WEIGHT_NAME
         next_weight_name = next_layer_name + "/" + WEIGHT_NAME
@@ -222,7 +226,6 @@ def strip_all_empty_weights(trainable_variables, masks, layer_order, masking_cor
 def repack_graph(graph, layer_order, masking_correspondencies, debug=False):
     evaluated_trainable_variables = eval_weights_from_graph(graph, collection_name="trainable_variables", debug=debug)
     masks = eval_weights_from_graph(graph, collection_name=MASKS_COLLECTION, debug=debug)
-
     initial_parameters_num = compute_number_of_parameters(evaluated_trainable_variables)
 
     if initial_parameters_num == 0:
@@ -233,9 +236,8 @@ def repack_graph(graph, layer_order, masking_correspondencies, debug=False):
 
     repacked_parameters_num = compute_number_of_parameters(evaluated_trainable_variables)
 
-    if debug:
-        print("initial_parameters_num: ", initial_parameters_num)
-        print("repacked_parameters_num: ", repacked_parameters_num)
+    print("initial_parameters_num: ", initial_parameters_num)
+    print("repacked_parameters_num: ", repacked_parameters_num)
 
     compression = 100*(1.0 - float(repacked_parameters_num)/initial_parameters_num)
     print("Finished repacking, compression: ", compression, " percent")

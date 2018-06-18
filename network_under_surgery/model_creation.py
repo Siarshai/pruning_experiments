@@ -142,7 +142,7 @@ def create_network_cifar_100(network_input, classes_num, is_training):
     x = MaskingLayer()(x)
 
     x = Conv2D(
-        filters=48,
+        filters=32,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
@@ -152,14 +152,8 @@ def create_network_cifar_100(network_input, classes_num, is_training):
     x = tf.nn.relu(x, name="conv2_relu")
     x = MaskingLayer()(x)
 
-    x = MaxPooling2D(
-        pool_size=[2, 2],
-        padding="valid",
-        name="conv2_maxpool2d"
-    )(x)
-
     x = Conv2D(
-        filters=64,
+        filters=48,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
@@ -169,8 +163,16 @@ def create_network_cifar_100(network_input, classes_num, is_training):
     x = tf.nn.relu(x, name="conv3_relu")
     x = MaskingLayer()(x)
 
+    x = MaxPooling2D(
+        pool_size=[2, 2],
+        padding="valid",
+        name="conv3_maxpool2d"
+    )(x)
+
+    x = Dropout(0.5, name="conv3_dropout")(x, training=is_training)
+
     x = Conv2D(
-        filters=96,
+        filters=48,
         kernel_size=(3, 3),
         strides=1,
         padding="same",
@@ -180,22 +182,62 @@ def create_network_cifar_100(network_input, classes_num, is_training):
     x = tf.nn.relu(x, name="conv4_relu")
     x = MaskingLayer()(x)
 
+    x = Conv2D(
+        filters=48,
+        kernel_size=(3, 3),
+        strides=1,
+        padding="same",
+        use_bias=True,
+        activation=None,
+        name="conv5")(x)
+    x = tf.nn.relu(x, name="conv5_relu")
+    x = MaskingLayer()(x)
+
     x = MaxPooling2D(
         pool_size=[2, 2],
         padding="valid",
-        name="conv4_maxpool2d"
+        name="conv5_maxpool2d"
+    )(x)
+    x = Dropout(0.5, name="conv5_dropout")(x, training=is_training)
+
+    x = Conv2D(
+        filters=64,
+        kernel_size=(3, 3),
+        strides=1,
+        padding="same",
+        use_bias=True,
+        activation=None,
+        name="conv6")(x)
+    x = tf.nn.relu(x, name="conv6_relu")
+    x = MaskingLayer()(x)
+
+    x = Conv2D(
+        filters=64,
+        kernel_size=(3, 3),
+        strides=1,
+        padding="same",
+        use_bias=True,
+        activation=None,
+        name="conv7")(x)
+    x = tf.nn.relu(x, name="conv7_relu")
+
+    x = MaxPooling2D(
+        pool_size=[2, 2],
+        padding="valid",
+        name="conv7_maxpool2d"
     )(x)
 
     x = Flatten()(x)
-    x = Dropout(0.5, name="conv4_dropout")(x, training=is_training)
+    x = Dropout(0.5, name="conv7_dropout")(x, training=is_training)
 
-    x = Dense(units=128, activation=tf.nn.relu, name="dense1")(x)
+    x = Dense(units=48, activation=tf.nn.relu, name="dense1")(x)
+    x = MaskingLayer()(x)
+    # x = Dropout(0.5, name="dense1_dropout")(x, training=is_training)
+
+    x = Dense(units=48, activation=tf.nn.relu, name="dense2")(x)
     x = MaskingLayer()(x)
 
-    x = Dense(units=128, activation=tf.nn.relu, name="dense2")(x)
-    x = MaskingLayer()(x)
-
-    x = Dense(units=classes_num, name="dense4_logits")(x)
+    x = Dense(units=classes_num, name="dense3_logits")(x)
 
     return x
 
@@ -212,7 +254,8 @@ def get_layers_names_for_dataset(dataset_label):
     return {
         "mnist": ["conv1", "conv2", "conv3", "dense1", "dense2_logits"],
         "cifar_10": ["conv1", "conv2", "conv3", "conv4", "dense1", "dense2_logits"],
-        "cifar_100": ["conv1", "conv2", "conv3", "conv4", "dense1", "dense2_logits"]
+        "cifar_100": ["conv1", "conv2", "conv3", "conv4", "conv5", "conv6", "conv7",
+                      "dense1", "dense2", "dense3_logits"]
     }[dataset_label]
 
 
@@ -223,5 +266,14 @@ def get_masking_correspondencies_for_dataset(dataset_label):
                      "conv3": "masking_layer_3",
                      "conv4": "masking_layer_4",
                      "dense1": "masking_layer_5"},
+        "cifar_100": {"conv1": "masking_layer_1",
+                     "conv2": "masking_layer_2",
+                     "conv3": "masking_layer_3",
+                     "conv4": "masking_layer_4",
+                     "conv5": "masking_layer_5",
+                     "conv6": "masking_layer_6",
+                     "conv7": "",
+                     "dense1": "masking_layer_7",
+                     "dense2": "masking_layer_8"},
     }[dataset_label]
 

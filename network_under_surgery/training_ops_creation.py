@@ -49,12 +49,17 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
     main_trainable_weights = tf.trainable_variables()
 
     regularizer_loss = 0
-    for weight in main_trainable_weights:
-        regularizer_loss += FLAGS.l2 * tf.nn.l2_loss(weight)
-        regularizer_loss += FLAGS.l1 * tf.reduce_sum(tf.abs(weight))
+    if FLAGS.l2 != 0:
+        for weight in main_trainable_weights:
+            regularizer_loss += FLAGS.l2 * tf.nn.l2_loss(weight)
+    if FLAGS.l1 != 0:
+        for weight in main_trainable_weights:
+            regularizer_loss += FLAGS.l1 * tf.reduce_sum(tf.abs(weight))
 
-    loss = regularizer_loss + tf.reduce_mean(
+    loss = tf.reduce_mean(
         tf.nn.softmax_cross_entropy_with_logits_v2(labels=network_target, logits=network_logits))
+    if regularizer_loss != 0:
+        loss += tf.reduce_mean(regularizer_loss)
 
     lasso_masks_lambda = tf.Variable(FLAGS.masks_lasso_lambda_step, trainable=False, name="lasso_masks_lambda")
     all_masks = tf.concat(tf.get_collection(MASKS_COLLECTION), axis=0)
@@ -86,12 +91,16 @@ def create_training_ops(network_input, network_logits, network_target, is_traini
             global_step=tf.train.get_global_step(),
             var_list=main_trainable_weights)
 
-        lasso_masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, beta1=FLAGS.beta1)
+        lasso_masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.masks_lasso_learning_rate, beta1=FLAGS.beta1)
         lasso_update_masks_op = lasso_masks_optimizer.minimize(
             loss=lasso_masks_loss,
             global_step=tf.train.get_global_step(),
             var_list=tf.get_collection(MASKS_COLLECTION))
-        update_lasso_masks_lambda_op = tf.assign(lasso_masks_lambda, lasso_masks_lambda + FLAGS.masks_lasso_lambda_step)
+        update_lasso_masks_lambda_op = tf.cond(
+            tf.less_equal(lasso_masks_lambda, FLAGS.masks_lasso_lambda_max),
+            lambda: tf.assign(lasso_masks_lambda, lasso_masks_lambda + FLAGS.masks_lasso_lambda_max),
+            lambda: tf.assign(lasso_masks_lambda, lasso_masks_lambda)
+        )
 
         l0_masks_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.masks_l0_learning_rate, beta1=FLAGS.beta1)
         l0_update_masks_op = l0_masks_optimizer.minimize(

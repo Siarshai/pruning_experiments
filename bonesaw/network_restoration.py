@@ -102,14 +102,23 @@ def restore_network_cifar_10(network_input, layers_order, repacked_weights, debu
 def restore_network_cifar_100(network_input, layers_order, repacked_weights, debug=False):
     x = create_conv_from_weights(network_input, layers_order[0], repacked_weights, debug)
     x = create_conv_from_weights(x, layers_order[1], repacked_weights, debug)
+    x = create_conv_from_weights(x, layers_order[2], repacked_weights, debug)
     x = tf.layers.max_pooling2d(
         inputs=x,
         pool_size=[2, 2],
         strides=2,
         padding="valid",
         name=layers_order[1] + "_maxpool2d")
-    x = create_conv_from_weights(x, layers_order[2], repacked_weights, debug)
     x = create_conv_from_weights(x, layers_order[3], repacked_weights, debug)
+    x = create_conv_from_weights(x, layers_order[4], repacked_weights, debug)
+    x = tf.layers.max_pooling2d(
+        inputs=x,
+        pool_size=[2, 2],
+        strides=2,
+        padding="valid",
+        name=layers_order[1] + "_maxpool2d")
+    x = create_conv_from_weights(x, layers_order[5], repacked_weights, debug)
+    x = create_conv_from_weights(x, layers_order[6], repacked_weights, debug)
     x = tf.layers.max_pooling2d(
         inputs=x,
         pool_size=[2, 2],
@@ -117,9 +126,9 @@ def restore_network_cifar_100(network_input, layers_order, repacked_weights, deb
         padding="valid",
         name=layers_order[1] + "_maxpool2d")
     x = tf.layers.flatten(x)
-    x = create_dense_from_weights(x, layers_order[4], repacked_weights, debug)
-    x = create_dense_from_weights(x, layers_order[5], repacked_weights, debug)
-    x = create_dense_from_weights(x, layers_order[6], repacked_weights, debug)
+    x = create_dense_from_weights(x, layers_order[7], repacked_weights, debug)
+    x = create_dense_from_weights(x, layers_order[8], repacked_weights, debug)
+    x = create_dense_from_weights(x, layers_order[9], repacked_weights, debug)
     return x
 
 
